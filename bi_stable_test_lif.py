@@ -102,14 +102,17 @@ def update_net(local_neurons, local_noise):
 
 	return local_neurons
 
+should_be_higher = np.random.choice([0, 1])
 for t in range(sim_steps):
-	noise = np.random.normal(0.1, 1, num_neurons)
-	if t > sim_steps/3 and t < sim_steps*2/3:
-		noise[:num_in_region] += np.ones(num_in_region)*0.1
+	noise = np.random.normal(0.05, 1, num_neurons)
+	if t < sim_steps/2:
+		noise[num_in_region*should_be_higher:num_in_region*(should_be_higher+1)] += np.ones(num_in_region)*0.1
 	#noise[:num_neurons//2] = np.zeros(num_neurons//2)
 	neurons = update_net(neurons, noise)
 	jFs[:, t] = neurons[:, 2]
 
-print(np.mean(jFs))
+print(should_be_higher)
+print(np.mean(jFs[:num_in_region, sim_steps//2 + 100:]), np.mean(jFs[num_in_region:2*num_in_region, sim_steps//2 + 100:]))
+#print(np.mean(jFs))
 plt.imshow(jFs)
 plt.show()
