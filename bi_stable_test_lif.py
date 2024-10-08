@@ -24,18 +24,23 @@ inhib_neur_params = [0.2, 20, 1E-3, 10]
 #these are the volatile neuron parameters, they are the voltage in mV and the time since the neuron last fired, initilized to 100 seconds as the neurons should start not firing
 neur_vol = [-70, 100, 0]
 
-num_in_region = 500
-num_choices = 2
+#check when inhibition is different size than the regions
+#change weights
+num_in_region = 1000
+num_choices = 10
 num_excite = num_in_region*num_choices
-num_inhib = num_in_region
+num_inhib = 500
 num_neurons = num_inhib + num_excite
 noise_frac = 0.014
 
 exin_array = np.zeros(num_neurons)
 neurons = np.zeros((num_neurons, 3)) #stores the voltage and the tslf (time since last fire) and if they just fired
 neur_params = np.zeros((num_neurons, 4))
-syn_weights = np.random.rand(num_neurons, num_neurons)*5
+syn_weights = np.random.rand(num_neurons, num_neurons)
 architecture = np.zeros((num_neurons, num_neurons))
+ee_weight = 5
+ie_weight = 5
+ei_weight = 5
 
 #order is [post_synaptic, pre_synaptic]
 jFs = np.zeros((num_neurons, sim_steps))
@@ -52,25 +57,30 @@ for n in range(num_neurons):
 		neurons[n, :] = neur_vol[:]
 		neur_params[n, :] = inhib_neur_params[:]
 
+
 for i in range(num_choices):
 	for pre_syn_idx in range(num_in_region):
-		for post_syn_idx in range(num_in_region):
 
-			#sets up the connections within a given region
+		#sets up the connections within a given region
+		for post_syn_idx in range(num_in_region):
 			true_pre_syn_idx = pre_syn_idx+(i*num_in_region)
 			true_post_syn_idx = post_syn_idx+(i*num_in_region)
 			if true_post_syn_idx != true_pre_syn_idx: 
-				architecture[true_post_syn_idx][true_pre_syn_idx] = 1
-
-			#connections of this region exciting the inhibitory region
+				architecture[true_post_syn_idx][true_pre_syn_idx] = ee_weight
+		
+		#connections of this region exciting the inhibitory region
+		for post_syn_idx in range(num_inhib):
 			true_pre_syn_idx = pre_syn_idx+(i*num_in_region)
 			true_post_syn_idx = post_syn_idx+(num_choices*num_in_region)
-			architecture[true_post_syn_idx][true_pre_syn_idx] = 1
+			architecture[true_post_syn_idx][true_pre_syn_idx] = ei_weight
 
-			#connections of the inhibitory region inhibiting this region
+	#connections of the inhibitory region inhibiting this region
+	for pre_syn_idx in range(num_inhib):
+		for post_syn_idx in range(num_in_region):
+			
 			true_pre_syn_idx = pre_syn_idx+(num_choices*num_in_region)
 			true_post_syn_idx = post_syn_idx+(i*num_in_region)
-			architecture[true_post_syn_idx][true_pre_syn_idx] = 1
+			architecture[true_post_syn_idx][true_pre_syn_idx] = ie_weight
 
 syn_weights = np.multiply(syn_weights, architecture)
 np.save("architecture", architecture)
@@ -102,17 +112,25 @@ def update_net(local_neurons, local_noise):
 
 	return local_neurons
 
-should_be_higher = np.random.choice([0, 1])
-for t in range(sim_steps):
-	noise = np.random.normal(0.05, 1, num_neurons)
-	if t < sim_steps/2:
-		noise[num_in_region*should_be_higher:num_in_region*(should_be_higher+1)] += np.ones(num_in_region)*0.1
-	#noise[:num_neurons//2] = np.zeros(num_neurons//2)
-	neurons = update_net(neurons, noise)
-	jFs[:, t] = neurons[:, 2]
+succ = 0
+num_trials = 50
+for k in range(num_trials):
+	should_be_higher = int(np.random.choice(np.linspace(0, num_choices-1, num_choices)))
+	for t in range(sim_steps):
+		noise = np.random.normal(0.05, 1, num_neurons)
+		if t < sim_steps/2:
+			noise[num_in_region*should_be_higher:num_in_region*(should_be_higher+1)] += np.ones(num_in_region)*0.05 #this is for forcing it into one of the two states
+			#noise += np.random.normal(0.05, 1, num_neurons) #this is for checking if goes to one of two states randomly
+		#noise[:num_neurons//2] = np.zeros(num_neurons//2)
+		neurons = update_net(neurons, noise)
+		jFs[:, t] = neurons[:, 2]
 
-print(should_be_higher)
-print(np.mean(jFs[:num_in_region, sim_steps//2 + 100:]), np.mean(jFs[num_in_region:2*num_in_region, sim_steps//2 + 100:]))
-#print(np.mean(jFs))
+
+	firing_rates = []
+	for j in range(num_choices):
+		firing_rates.append(np.mean(jFs[num_in_region*j:num_in_region*(j+1), 3*sim_steps//4:]))
+	succ += firing_rates[should_be_higher] == np.max(firing_rates)
+	print(should_be_higher, firing_rates, firing_rates[should_be_higher] == np.max(firing_rates), succ/(k+1))
+	
 plt.imshow(jFs)
 plt.show()
