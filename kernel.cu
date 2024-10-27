@@ -48,23 +48,26 @@ __global__ void matrix_mul_syn_curr(signed int* curr, const bool* fire, const si
     }
 }
 
-__global__ void synapse_current(signed int* curr, const bool* fire, const signed char* syn_weights, int* post_syn_idx, int num_neurons, int num_syns)
+__global__ void synapse_current(float* volt, bool* exin_array, float* fire_con_excite, float* fire_con_inhib, int* fired, float* syn_weights, int num_neurons)
 {
-    int neuron_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (neuron_idx < num_neurons)
+    int post_syn_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int pre_syn_idx = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (post_syn_idx >= num_neurons || pre_syn_idx >= num_neurons) return;
+
+    int tot_idx = post_syn_idx * num_neurons + pre_syn_idx;
+
+    if (fired[pre_syn_idx] == 1)
     {
-        if (fire[neuron_idx] == 1)
-        {
-            for (int syn_idx = 0; syn_idx < num_syns; syn_idx++)
-            {
-                int tot_idx = neuron_idx * num_syns + syn_idx; //remember this so i can actuall reference shit later
-                atomicAdd(&curr[post_syn_idx[tot_idx]], syn_weights[tot_idx]);
-            }
-        }
+        float volt_part = 0;
+        if (exin_array[pre_syn_idx] == 1) atomicAdd(&fire_con_excite[post_syn_idx], syn_weights[tot_idx]);
+
+            
+        else atomicAdd(&fire_con_inhib[post_syn_idx], syn_weights[tot_idx]);
     }
 }
 
-__global__ void update_neuron(float* volt, float* fire_con, float* noise_con, int* fired, float* capac, float* leak, int num_neurons, int V_r, int V_thresh, int V_reset, float del_t, int offset)
+__global__ void update_neuron(float* volt, float* fire_con_excite, float* fire_con_inhib, float* noise_con, int* fired, float* capac, float* leak, int num_neurons, int V_r, int V_thresh, int V_reset, float del_t, int V_E, int V_I, int offset)
 {
     int neuron_idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (neuron_idx >= num_neurons) return;
@@ -73,9 +76,11 @@ __global__ void update_neuron(float* volt, float* fire_con, float* noise_con, in
     {
         fired[neuron_idx] = 0;
         float leak_con = -1 * leak[neuron_idx] * (volt[neuron_idx] - V_r);
-        //float noise_con = curand_normal(&state) * 1 + 0.05; // *std + mean
-        float del_v = ((leak_con + fire_con[neuron_idx]) * del_t / capac[neuron_idx]) + noise_con[offset * num_neurons + neuron_idx];
+        float fire_con = -1 * (fire_con_excite[neuron_idx] * (volt[neuron_idx] - V_E) + fire_con_inhib[neuron_idx] * (volt[neuron_idx] - V_I));
+        float del_v = ((leak_con + fire_con) * del_t / capac[neuron_idx]) + noise_con[offset * num_neurons + neuron_idx];
         volt[neuron_idx] += del_v;
+        fire_con_excite[neuron_idx] = 0;
+        fire_con_inhib[neuron_idx] = 0;
         if (volt[neuron_idx] > V_thresh)
         {
             volt[neuron_idx] = V_reset;
@@ -84,12 +89,13 @@ __global__ void update_neuron(float* volt, float* fire_con, float* noise_con, in
     }
 }
 
-__global__ void init_neurons(float* volt, float* fire_con, int* fired, int num_neurons)
+__global__ void init_neurons(float* volt, float* fire_con_excite, float* fire_con_inhib, int* fired, int num_neurons)
 {
     int neur_idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (neur_idx >= num_neurons) return;
     volt[neur_idx] = -70;
-    fire_con[neur_idx] = 0;
+    fire_con_excite[neur_idx] = 0;
+    fire_con_inhib[neur_idx] = 0;
     fired[neur_idx] = 0;
 }
 
@@ -188,6 +194,8 @@ int main() {
     int V_r = -70;
     int V_reset = -55;
     int V_thresh = -50;
+    int V_I = -70;
+    int V_E = 0;
 
     // Host vector to store the result
     vector<vector<float>> all_volts(sim_steps, vector<float>(num_neurons));
@@ -214,7 +222,8 @@ int main() {
 
     // Device vector
     float* d_volt;
-    float* d_fire_con;
+    float* d_fire_con_excite;
+    float* d_fire_con_inhib;
     int* d_fired;
 
     float* d_capac;
@@ -226,7 +235,8 @@ int main() {
     float* d_pre_comp_noise;
 
     cudaMalloc((void**)&d_volt, num_neurons * sizeof(float));
-    cudaMalloc((void**)&d_fire_con, num_neurons * sizeof(float));
+    cudaMalloc((void**)&d_fire_con_excite, num_neurons * sizeof(float));
+    cudaMalloc((void**)&d_fire_con_inhib, num_neurons * sizeof(float));
     cudaMalloc((void**)&d_fired, num_neurons * sizeof(int));
     cudaMalloc((void**)&d_capac, num_neurons * sizeof(float));
     cudaMalloc((void**)&d_leak, num_neurons * sizeof(float));
@@ -239,7 +249,7 @@ int main() {
     //initializing data on gpu
     define_static_stuff << <blocks, threads >> > (d_capac, d_leak, d_exin_array, ee_weight, ie_weight, ei_weight, num_in_region, num_regions, num_inhib);
     define_synapses << < blocks, threads >> > (d_synapses, ee_weight, ie_weight, ei_weight, num_in_region, num_regions, num_inhib);
-    init_neurons << <blocks, threads >> > (d_volt, d_fire_con, d_fired, num_neurons);
+    init_neurons << <blocks, threads >> > (d_volt, d_fire_con_excite, d_fire_con_inhib, d_fired, num_neurons);
     make_some_noise << < blocks, threads >> > (d_pre_comp_noise, num_neurons, sim_steps);
     cudaMemcpy(debug_noise.data(), d_pre_comp_noise, sim_steps * num_neurons * sizeof(float), cudaMemcpyDeviceToHost);
     
@@ -254,7 +264,8 @@ int main() {
     auto start = chrono::high_resolution_clock::now();
     for (int t = 0; t < sim_steps; t++)
     {
-        update_neuron << <blocksX, threadsX >> > (d_volt, d_fire_con, d_pre_comp_noise, d_fired, d_capac, d_leak, num_neurons, V_r, V_thresh, V_reset, del_t, t);
+        update_neuron << <blocksX, threadsX >> > (d_volt, d_fire_con_excite, d_fire_con_inhib, d_pre_comp_noise, d_fired, d_capac, d_leak, num_neurons, V_r, V_thresh, V_reset, del_t, V_E, V_I, t);
+        synapse_current << <blocks, threads >> > (d_volt, d_exin_array, d_fire_con_excite, d_fire_con_inhib, d_fired, d_synapses, num_neurons);
 
         cudaMemcpy(h_volt.data(), d_volt, num_neurons * sizeof(float), cudaMemcpyDeviceToHost);
         //all_fires[t] = h_fire;
