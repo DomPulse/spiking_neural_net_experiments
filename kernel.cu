@@ -59,13 +59,17 @@ void transferToGPU(const vector<float>& host_data, float** device_data, int num_
 //and now back to your regular shitty human written code
 
 
-bool writeCSV(vector<vector<float>> mat)
+bool writeCSV(const std::vector<std::vector<float>>& mat)
 {
-    ofstream file;
-    file.open("volts.csv", ios_base::app);
-    for (auto& row : mat) {
-        for (auto col : row)
-            file << col << ',';
+    std::ofstream file("volts.csv", std::ios_base::app);
+    if (!file.is_open()) return false;
+
+    for (const auto& row : mat) {
+        for (size_t i = 0; i < row.size(); ++i) {
+            file << row[i];
+            if (i < row.size() - 1) // Don't add comma after the last element
+                file << ',';
+        }
         file << '\n';
     }
     file.close();
@@ -75,11 +79,15 @@ bool writeCSV(vector<vector<float>> mat)
 
 bool writeCSVint(vector<vector<int>> mat)
 {
-    ofstream file;
-    file.open("fires.csv", ios_base::app);
-    for (auto& row : mat) {
-        for (auto col : row)
-            file << col << ',';
+    std::ofstream file("fires.csv", std::ios_base::app);
+    if (!file.is_open()) return false;
+
+    for (const auto& row : mat) {
+        for (size_t i = 0; i < row.size(); ++i) {
+            file << row[i];
+            if (i < row.size() - 1) // Don't add comma after the last element
+                file << ',';
+        }
         file << '\n';
     }
     file.close();
@@ -139,7 +147,7 @@ __global__ void init_neurons(float* volt, float* fire_con_excite, float* fire_co
     fired[not_neur_idx] = 0;
 }
 
-__global__ void define_synapses(float* synapses, float temp_ee_weight, float temp_ie_weight, float temp_ei_weight, int temp_num_in_region, int temp_num_regions, int temp_num_inhib, int input_size)
+__global__ void define_synapses(float* synapses, float temp_ee_weight, float temp_ie_weight, float temp_ei_weight, float temp_ini_weight, int temp_num_in_region, int temp_num_regions, int temp_num_inhib, int input_size)
 {
     //fix this or maybe the synapse contribution idk, im tired
     int num_neurons = temp_num_inhib + temp_num_in_region * temp_num_regions;
@@ -184,7 +192,7 @@ __global__ void define_synapses(float* synapses, float temp_ee_weight, float tem
 
         else if (adjusted_pre_syn_idx >= num_neurons && post_syn_idx < temp_num_in_region * temp_num_regions)
         {
-            synapses[tot_idx] = 0.3 * curand_uniform(&state); //input to regions
+            synapses[tot_idx] = temp_ini_weight * curand_uniform(&state); //input to regions
         }
         
  
@@ -199,7 +207,7 @@ __global__ void define_synapses(float* synapses, float temp_ee_weight, float tem
     }
 }
 
-__global__ void define_static_stuff(float* capac, float* leak, bool* exin_array, int temp_num_in_region, int temp_num_regions, int temp_num_inhib, int input_size)
+__global__ void define_static_stuff(float* capac, float* leak, bool* exin_array, int temp_num_in_region, int temp_num_regions, int temp_num_inhib, int input_size, float frac_excite)
 {
     //here to fix the exin array
     int num_neurons = temp_num_inhib + temp_num_in_region * temp_num_regions;
@@ -225,7 +233,7 @@ __global__ void define_static_stuff(float* capac, float* leak, bool* exin_array,
     }
     else if (post_syn_idx < num_neurons + input_size)
     {
-        if (curand_uniform(&state) > 0.5) exin_array[post_syn_idx - num_neurons] = 1; //post_syn_idx is a little meaningless here but whatever
+        if (curand_uniform(&state) < frac_excite) exin_array[post_syn_idx - num_neurons] = 1; //post_syn_idx is a little meaningless here but whatever
         else exin_array[post_syn_idx - num_neurons] = 0; 
         
     }
@@ -233,7 +241,7 @@ __global__ void define_static_stuff(float* capac, float* leak, bool* exin_array,
     else return;
 }
 
-__global__ void make_some_noise(float* noise, int num_neurons, int sim_steps)
+__global__ void make_some_noise(float* noise, int num_neurons, int sim_steps, int seed)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -241,7 +249,7 @@ __global__ void make_some_noise(float* noise, int num_neurons, int sim_steps)
     int tot_idx = i * num_neurons + j;
 
     curandState state;
-    curand_init(0, i, j, &state);
+    curand_init(seed, i, j, &state);
 
     noise[tot_idx] = curand_normal(&state) * 0.5 + 0.025; // *std + mean
 
@@ -256,7 +264,7 @@ __global__ void make_some_input(int* input, float* input_imgs, int input_size, i
     int tot_idx = time * input_size + fake_neur_idx;
 
     curandState state;
-    curand_init(0, time, fake_neur_idx, &state);
+    curand_init(img_idx, time, fake_neur_idx, &state);
 
     if (curand_uniform(&state) < 0.2 * (1 - input_imgs[img_idx * input_size + fake_neur_idx])) //if the random number is greater than 80% of the pixel brightness at that point of the image, the input neuron fires
     {
@@ -301,20 +309,23 @@ int main() {
 
 
     unsigned long long seed = 1234;  // Random seed
+    int num_trials = 100;
     int input_size = 784;
-    int num_in_region = 1100;
+    int num_in_region = 1150;
     int num_regions = 2;
     int num_excite = num_regions * num_in_region;
-    int num_inhib = 300;
+    int num_inhib = 700;
     int num_neurons = num_inhib + num_excite;
     float del_t = 1.0 / 1000; // time step in secons, must be given as a decimal, only a fool would write 1/1000 and be given and integer
     float sim_length = 1.0; // length of simulation in seconds
     int sim_steps = sim_length / del_t;
 
     cout << sim_steps << endl;
-    float ee_weight = 4.8;
+    float ee_weight = 4.6;
     float ie_weight = 5.5;
     float ei_weight = 2.4;
+    float ini_weight = 2;
+    float frac_excite = 0.5;
 
     int V_r = -70;
     int V_reset = -55;
@@ -323,8 +334,8 @@ int main() {
     int V_E = 0;
 
     // Host vector to store the result
-    vector<vector<float>> all_volts(sim_steps, vector<float>(num_neurons));
-    vector<vector<int>> all_fires(sim_steps, vector<int>(num_neurons + input_size));
+    vector<vector<float>> all_volts(sim_steps * num_trials, vector<float>(num_neurons));
+    vector<vector<int>> all_fires(sim_steps * num_trials, vector<int>(num_neurons + input_size));
     vector<float> debug_noise(sim_steps * num_neurons);
     vector<int> debug_input(sim_steps * input_size);
 
@@ -373,12 +384,12 @@ int main() {
     cudaMalloc((void**)&d_pre_comp_input, input_size * sim_steps * sizeof(int));
 
     //initializing data on gpu
-    make_some_noise << < blocks, threads >> > (d_pre_comp_noise, num_neurons, sim_steps);
-    define_static_stuff << <blocksX, threadsX >> > (d_capac, d_leak, d_exin_array, num_in_region, num_regions, num_inhib, input_size);
-    define_synapses << < blocks, threads >> > (d_synapses, ee_weight, ie_weight, ei_weight, num_in_region, num_regions, num_inhib, input_size);
+    make_some_noise << < blocks, threads >> > (d_pre_comp_noise, num_neurons, sim_steps, 0);
+    define_static_stuff << <blocksX, threadsX >> > (d_capac, d_leak, d_exin_array, num_in_region, num_regions, num_inhib, input_size, frac_excite);
+    define_synapses << < blocks, threads >> > (d_synapses, ee_weight, ie_weight, ei_weight, ini_weight, num_in_region, num_regions, num_inhib, input_size);
     init_neurons << <blocks, threads >> > (d_volt, d_fire_con_excite, d_fire_con_inhib, d_fired, num_neurons, input_size);
     make_some_input << < blocks, threads >> > (d_pre_comp_input, device_data, input_size, sim_steps, 0);
-    cudaMemcpy(debug_noise.data(), d_pre_comp_noise, sim_steps * num_neurons * sizeof(float), cudaMemcpyDeviceToHost);
+    //cudaMemcpy(debug_noise.data(), d_pre_comp_noise, sim_steps * num_neurons * sizeof(float), cudaMemcpyDeviceToHost);
     
     /*
     cudaMemcpy(debug_input.data(), d_pre_comp_input, input_size * sim_steps * sizeof(float), cudaMemcpyDeviceToHost);
@@ -398,21 +409,29 @@ int main() {
     cout << "started" << endl;
     auto start = chrono::high_resolution_clock::now();
     
-    for (int t = 0; t < sim_steps; t++)
+    for (int i = 0; i < num_trials; i++)
     {
-        //hey it looks really dumb to pass stuff like the number of neurons each time but aparently that saves time over making global variables, who knew!
-        input_fires << <blocksX, threadsX >> > (d_fired, d_pre_comp_input, input_size, t);
-        update_neuron << <blocksX, threadsX >> > (d_volt, d_fire_con_excite, d_fire_con_inhib, d_pre_comp_noise, d_fired, d_capac, d_leak, num_neurons, V_r, V_thresh, V_reset, del_t, V_E, V_I, t, input_size);
-        synapse_current << <blocks, threads >> > (d_volt, d_exin_array, d_fire_con_excite, d_fire_con_inhib, d_fired, d_synapses, num_neurons, input_size);
-        //Might need to fix the indexing on the synaptic or the fires, if not just get working on the mnist input
+        cout << i << endl;
+        make_some_input << < blocks, threads >> > (d_pre_comp_input, device_data, input_size, sim_steps, i);
+        make_some_noise << < blocks, threads >> > (d_pre_comp_noise, num_neurons, sim_steps, i);
+        init_neurons << <blocks, threads >> > (d_volt, d_fire_con_excite, d_fire_con_inhib, d_fired, num_neurons, input_size);
 
-        cudaMemcpy(h_volt.data(), d_volt, num_neurons * sizeof(float), cudaMemcpyDeviceToHost);
-        //all_fires[t] = h_fire;
-        all_volts[t] = h_volt;
+        for (int t = 0; t < sim_steps; t++)
+        {
+            //hey it looks really dumb to pass stuff like the number of neurons each time but aparently that saves time over making global variables, who knew!
+            input_fires << <blocksX, threadsX >> > (d_fired, d_pre_comp_input, input_size, t);
+            update_neuron << <blocksX, threadsX >> > (d_volt, d_fire_con_excite, d_fire_con_inhib, d_pre_comp_noise, d_fired, d_capac, d_leak, num_neurons, V_r, V_thresh, V_reset, del_t, V_E, V_I, t, input_size);
+            synapse_current << <blocks, threads >> > (d_volt, d_exin_array, d_fire_con_excite, d_fire_con_inhib, d_fired, d_synapses, num_neurons, input_size);
+            //Might need to fix the indexing on the synaptic or the fires, if not just get working on the mnist input
 
-        cudaMemcpy(h_fired.data(), d_fired, (num_neurons + input_size) * sizeof(int), cudaMemcpyDeviceToHost);
-        //all_fires[t] = h_fire;
-        all_fires[t] = h_fired;
+            cudaMemcpy(h_volt.data(), d_volt, num_neurons * sizeof(float), cudaMemcpyDeviceToHost);
+            //all_fires[t] = h_fire;
+            all_volts[t + i * sim_steps] = h_volt;
+
+            cudaMemcpy(h_fired.data(), d_fired, (num_neurons + input_size) * sizeof(int), cudaMemcpyDeviceToHost);
+            //all_fires[t] = h_fire;
+            all_fires[t + i * sim_steps] = h_fired;
+        }
     }
 
 
@@ -434,8 +453,8 @@ int main() {
     cudaFree(d_leak);
     cudaFree(d_synapses);
     cudaFree(d_exin_array);
-    //cudaFree(device_data);
-    //cudaFree(device_labels);
+    cudaFree(device_data);
+    cudaFree(device_labels);
 
     return 0;
 }
