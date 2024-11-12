@@ -59,8 +59,24 @@ void transferToGPU(const vector<float>& host_data, float** device_data, int num_
 }
 //and now back to your regular shitty human written code
 
+void SaveSyns(vector<float>& arr, const string& filename) {
+    ofstream file(filename);
+    if (!file.is_open()) {
+        cerr << "Error: Could not open the file!" << endl;
+        return;
+    }
 
-bool writeCSV(const std::vector<std::vector<float>>& mat)
+    for (size_t i = 0; i < arr.size(); ++i) {
+        file << arr[i];
+        if (i < arr.size() - 1) {
+            file << ",";  // Add a comma between values
+        }
+    }
+    file << endl;
+    file.close();
+}
+
+bool writeCSV(const vector<vector<float>>& mat)
 {
     std::ofstream file("volts.csv", std::ios_base::app);
     if (!file.is_open()) return false;
@@ -100,7 +116,7 @@ __global__ void i_have_a_stdp(float label, int* reg_fires, bool* exin_array, int
 {
     //add direction from the exin array
     //make everything go to a buffer so you aren't changing the syn weights and also calling them up to impact that, see the thing with the parabola
-    int max_weight = 0;
+    float max_weight = 0;
     int num_neurons = temp_num_inhib + temp_num_in_region * temp_num_regions;
     int post_syn_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int pre_syn_idx = blockIdx.y * blockDim.y + threadIdx.y;
@@ -114,7 +130,7 @@ __global__ void i_have_a_stdp(float label, int* reg_fires, bool* exin_array, int
     //logic for what the maximum weight should be
     if (post_syn_idx < temp_num_in_region * temp_num_regions)
     {
-        if (adjusted_pre_syn_idx < temp_num_in_region && post_syn_idx < temp_num_in_region)
+        if (adjusted_pre_syn_idx >= 0 && adjusted_pre_syn_idx < temp_num_in_region && post_syn_idx < temp_num_in_region)
         {
             max_weight = temp_ee_weight;
         }
@@ -129,38 +145,43 @@ __global__ void i_have_a_stdp(float label, int* reg_fires, bool* exin_array, int
             max_weight = temp_ie_weight;
         }
 
-        else if (adjusted_pre_syn_idx >= num_neurons && post_syn_idx < temp_num_in_region * temp_num_regions)
+        else if (adjusted_pre_syn_idx < 0)
         {
             max_weight = temp_ini_weight;
         }
+        else return;
     }
     else
     {
-        if (adjusted_pre_syn_idx < temp_num_in_region * temp_num_regions)
+        if (adjusted_pre_syn_idx < temp_num_in_region * temp_num_regions && adjusted_pre_syn_idx >= 0)
         {
             max_weight = temp_ei_weight; //regions to inhib
         }
+        else return;
     }
+
     int direction = 1;
     if (exin_array[pre_syn_idx] == 0) direction = -1;
-    int reward = 1;
-    if ((reg_fires[0] > reg_fires[1] && label == 1) || (reg_fires[0] < reg_fires[1] && label == 0)) reward = -1;
+    int reward = 1.0f;
+    if ((reg_fires[0] > reg_fires[1] && label == 1) || (reg_fires[0] < reg_fires[1] && label == 0)) reward = -1.0f;
     for (int del_t = 1; del_t < 20; del_t++)
     {
-        int fire_before_idx = post_syn_idx * sim_steps + (time - del_t);
-        int fire_after_idx = post_syn_idx * sim_steps + (time + del_t);
+        int fire_before_idx = (input_size + post_syn_idx) * sim_steps + (time - del_t); //i ran this where it was just post_syn_idx and i think that fucked it up bc its the wrong indexing
+        int fire_after_idx = (input_size + post_syn_idx) * sim_steps + (time + del_t);
 
         if (all_fires[fire_before_idx] == 1)
         {
             get_outa_here = true;
-            atomicAdd(&del_syn[tot_idx], (float) - 1 * direction * reward * expf(-1.0f * del_t / 20.0f) * (-1 * synapses[tot_idx]) * (synapses[tot_idx] - max_weight) * (2.0f / max_weight) * (2.0f / max_weight));
+            atomicAdd(&del_syn[tot_idx], - 1.0f * direction * reward * expf(-1.0f * del_t / 20.0f) * (-1.0f * synapses[tot_idx]) * (synapses[tot_idx] - max_weight) * (2.0f / max_weight) * (2.0f / max_weight));
+            //atomicAdd(&del_syn[tot_idx], 1);
 
         }
 
         if (all_fires[fire_after_idx] == 1)
         {
             get_outa_here = true;
-            atomicAdd(&del_syn[tot_idx], (float) direction * reward * expf(-1.0f * del_t / 20.0f) * (-1 * synapses[tot_idx]) * (synapses[tot_idx] - max_weight) * (2.0f / max_weight) * (2.0f / max_weight));
+            atomicAdd(&del_syn[tot_idx], direction * reward * expf(-1.0f * del_t / 20.0f) * (-1.0f * synapses[tot_idx]) * (synapses[tot_idx] - max_weight) * (2.0f / max_weight) * (2.0f / max_weight));
+            //atomicAdd(&del_syn[tot_idx], -1);
         }
 
         if (get_outa_here) return;
@@ -169,14 +190,15 @@ __global__ void i_have_a_stdp(float label, int* reg_fires, bool* exin_array, int
     return;
 }
 
-__global__ void in_bounds(float* del_syn, float* synapses, int input_size, int num_neurons)
+__global__ void in_bounds(float* del_syn, float* synapses, int input_size, int num_neurons, int num_trials)
 {
     int post_syn_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int pre_syn_idx = blockIdx.y * blockDim.y + threadIdx.y;
     if (post_syn_idx >= num_neurons || pre_syn_idx >= num_neurons + input_size) return;
     int tot_idx = pre_syn_idx + post_syn_idx * (input_size + num_neurons);
     int max_weight = 5.5;
-    atomicAdd(&synapses[tot_idx], del_syn[tot_idx]);
+    float adj_change = del_syn[tot_idx]/(50 * num_trials);
+    atomicAdd(&synapses[tot_idx], adj_change);
     del_syn[tot_idx] = 0.0;
     if (synapses[tot_idx] < 0) synapses[tot_idx] = 0;
     if (synapses[tot_idx] > max_weight) synapses[tot_idx] = max_weight;
@@ -418,8 +440,8 @@ int main() {
 
 
     unsigned long long seed = 1234;  // Random seed
-    int num_trials = 50; //basically batch size
-    int num_epoch = 500;
+    int num_trials = 20; //basically batch size
+    int num_epoch = 600;
     int input_size = 784;
     int num_in_region = 1150;
     int num_regions = 2;
@@ -463,8 +485,8 @@ int main() {
     vector<float> h_del_syn((num_neurons) * (input_size + num_neurons));
 
     int threadsX = 16;
-    int threadsY = 16;
-    int threadsZ = 16;
+    int threadsY = 8;
+    int threadsZ = 4;
     dim3 threads(threadsX, threadsY);
     dim3 threads3D(threadsX, threadsY, threadsZ);
 
@@ -524,6 +546,7 @@ int main() {
     {
         int num_right = 0;
         float mean_fires = 0;
+        cudaMemset(d_del_syn, 0, num_neurons * (num_neurons + input_size) * sizeof(float));
         for (int j = 0; j < num_trials; j++)
         {
             int i = e * num_trials + j;
@@ -549,6 +572,7 @@ int main() {
             }
             calc_reward << <blocks, threads >> > (d_all_fires, d_fires_reg, num_in_region, num_regions, num_inhib, input_size, sim_steps);
             i_have_a_stdp << <blocks3D, threads3D >> > (host_labels[i], d_fires_reg, d_exin_array, d_all_fires, d_del_syn, d_synapses, ee_weight, ie_weight, ei_weight, ini_weight, num_in_region, num_regions, num_inhib, input_size, sim_steps);
+            
             cudaMemcpy(h_fires_reg.data(), d_fires_reg, 2 * sizeof(int), cudaMemcpyDeviceToHost);
             //cout << h_fires_reg[0] + h_fires_reg[1] << endl;
             cudaMemset(d_fires_reg, 0, 2 * sizeof(int));
@@ -556,14 +580,20 @@ int main() {
             mean_fires += (float)(h_fires_reg[0] + h_fires_reg[1]) / (float)(num_trials * num_in_region * num_regions * 200);
 
         }
-        //cudaMemcpy(h_del_syn.data(), d_synapses, ((num_neurons) * (input_size + num_neurons)) * sizeof(float), cudaMemcpyDeviceToHost);
-        in_bounds << <blocks, threads >> > (d_del_syn, d_synapses, input_size, num_neurons);
-        calc_mean_syn << <blocks, threads >> > (d_synapses, d_mean_syn_weight, input_size, num_neurons);
-        cudaMemcpy(h_mean_syn.data(), d_mean_syn_weight, sizeof(float), cudaMemcpyDeviceToHost);
-        cudaMemset(d_mean_syn_weight, 0, 1 * sizeof(float));
-        h_mean_syn[0] = h_mean_syn[0] / (float)((num_neurons) * (input_size + num_neurons));
-        cout << e << " " << num_right << " " << mean_fires << " " << h_mean_syn[0] << endl;
+        if (e % 10 == 0)
+        {
+            cudaMemcpy(h_synapses.data(), d_synapses, num_neurons * (num_neurons + input_size) * sizeof(float), cudaMemcpyDeviceToHost);
+            string filename = "syns_" + to_string(e) + ".csv";
+            SaveSyns(h_synapses, filename);
+        }
+        in_bounds << <blocks, threads >> > (d_del_syn, d_synapses, input_size, num_neurons, num_trials);
 
+        //calc_mean_syn << <blocks, threads >> > (d_del_syn, d_mean_syn_weight, input_size, num_neurons);
+        //cudaMemcpy(h_mean_syn.data(), d_mean_syn_weight, sizeof(float), cudaMemcpyDeviceToHost);
+        //h_mean_syn[0] = h_mean_syn[0] / (float)((num_neurons) * (input_size + num_neurons));
+        //cudaMemset(d_mean_syn_weight, 0, 1 * sizeof(float));
+                
+        cout << e << " " << num_right << " " << mean_fires << endl;
     }
 
 
