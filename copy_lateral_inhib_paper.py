@@ -1,10 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 #copying this paper as close as I can: https://sci-hub.se/https://doi.org/10.1016/j.neunet.2019.09.007
-#the logic of my code works I think but either my LIF model is different or I missed something in the paper or who the hell knows what
-#oh wait its probably synapse decay stuff, i bet that whats it they're modeling a real action potential
 
-train_data, train_labels = np.load('mnist_train_ones_zeros_data.npy'), np.load('mnist_train_ones_zeros_labels.npy')
+train_data, train_labels = np.load('mnist_train_data.npy'), np.load('mnist_train_labels.npy')
 
 def convert_to_binary_1D_normalized(array_2D, max_probability=1.0):
 	flat_array = array_2D.flatten()
@@ -12,8 +10,13 @@ def convert_to_binary_1D_normalized(array_2D, max_probability=1.0):
 	binary_1D_array = np.random.rand(len(flat_array)) < probabilities
 	return binary_1D_array.astype(int)  # Convert boolean to int (0 or 1)
 
-num_sims = 100000
-batch_size = 500
+#hyperparameters or something
+epoch = 1000
+batch_size_train = 100
+batch_size_test = 20
+learning_rate = 0.05
+beta = 0.1
+
 sim_length = 350 #number of miliseconds in real time
 del_t = 0.5 #in seconds
 sim_steps = int(sim_length/del_t) #number of time steps taken
@@ -28,6 +31,10 @@ V_reset = -65 #reset
 t_refrac = 2
 input_prob = 0.025
 
+Tau_theta = 6E6
+alpha = 8.4E5
+theta_init = 20
+
 num_input = 784
 num_hidden_exc = 400
 num_hidden_inhib = num_hidden_exc
@@ -36,8 +43,8 @@ num_neurons = num_hidden_exc + num_hidden_inhib + num_out
 num_all = num_neurons + num_input
 
 #these are, capacitence in nF, leak conductance in nano siemens, and the time constant for synaptic conductance which is currently unuse, then the threshold increase which is dynamic in this paper
-excite_neur_params = [0.5, 25, 20, 20]
-inhib_neur_params = [0.2, 20, 10, 20]
+excite_neur_params = [0.5, 25, 20, theta_init]
+inhib_neur_params = [0.2, 20, 10, theta_init]
 
 #these are the volatile neuron parameters, they are the voltage in mV and the time since the neuron last fired, initilized to 100 seconds as the neurons should start not firing
 neur_vol = [-70, 100, 0]
@@ -52,8 +59,30 @@ tslfs = np.ones(num_all)*1000
 neur_params = np.zeros((num_neurons, 4))
 jFs = np.zeros((num_all, sim_steps))
 volts = np.zeros((num_neurons, sim_steps))
-
+look_back = 20
 idx_pairs = []
+
+def find_nearest(array, value):
+	array = np.asarray(array)
+	try:
+		idx = (np.abs(array - value)).argmin()
+		return array[idx]
+	except:
+		print(array, value)
+		return(np.nan())
+
+def stdp_but_faster(spike_idxs):
+	#boy i sure do hope the indexing is right, if only i was smart enough to know how my own code works
+	del_synapses = np.zeros((num_neurons, num_all))
+	for pair in idx_pairs:
+		pre_syn_idx = pair[0]
+		post_syn_idx = pair[1]
+		for this_spike_time in spike_idxs[post_syn_idx]:
+			if np.size(spike_idxs[pre_syn_idx]) != 0:
+				delta_t = this_spike_time - find_nearest(spike_idxs[pre_syn_idx], this_spike_time)
+				del_synapses[post_syn_idx][pre_syn_idx] += learning_rate*(1 + 0.5*(delta_t > 0))*np.exp(-1*np.abs(delta_t)/(look_back + 20*(delta_t < 0)))
+	return del_synapses
+
 for pre_syn_idx in range(num_all):
 	adjusted_pre_syn_idx = pre_syn_idx - num_input
 	if adjusted_pre_syn_idx < 0:
@@ -63,9 +92,6 @@ for pre_syn_idx in range(num_all):
 			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
-		if adjusted_pre_syn_idx == post_syn_idx - num_hidden_exc and post_syn_idx > num_hidden_exc and post_syn_idx < num_hidden_exc + num_hidden_inhib: #hidden excite to corresponding hidden inhib
-			synapses[post_syn_idx, pre_syn_idx] = 30 #the corresponding neuron should always fire, right?
-
 		if post_syn_idx < num_hidden_exc and adjusted_pre_syn_idx > num_hidden_exc and adjusted_pre_syn_idx < num_hidden_exc + num_hidden_inhib and adjusted_pre_syn_idx != post_syn_idx: #hidden inhib to all hidden excite
 			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
@@ -73,6 +99,28 @@ for pre_syn_idx in range(num_all):
 		if adjusted_pre_syn_idx < num_hidden_exc and post_syn_idx > num_hidden_exc + num_hidden_inhib: #hidden excite to the output neurons
 			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
+idx_pairs = np.array(idx_pairs)
+
+
+def find_input_means():
+	#this was written by chatgpt, consult for debug
+	# Create an array to store the mean inputs
+	input_means = np.full(num_neurons, beta)  # Default to beta if no inputs exist
+
+	# Extract indices for postsynaptic and presynaptic neurons
+	post_syn_indices = idx_pairs[:, 1]
+	pre_syn_indices = idx_pairs[:, 0]
+
+	# Group by postsynaptic index to compute the mean
+	for post_syn_idx in np.unique(post_syn_indices):
+		mask = post_syn_indices == post_syn_idx
+		pre_indices = pre_syn_indices[mask]
+
+		if pre_indices.size > 0:
+			mean = np.mean(synapses[post_syn_idx, pre_indices])
+			input_means[post_syn_idx] = mean
+
+	return input_means
 
 for n in range(num_neurons):
 	if n < num_hidden_exc or n > num_hidden_exc + num_hidden_inhib:
@@ -81,7 +129,7 @@ for n in range(num_neurons):
 		exin_array[n + num_input] = 0
 		neur_params[n, :] = inhib_neur_params[:]
 
-def update_net(local_tslfs, local_mem_volt, local_syn_weights, local_fired, local_g_E, local_g_I):
+def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights, local_fired, local_g_E, local_g_I):
 
 	local_tslfs += np.ones(num_all)*del_t
 
@@ -101,26 +149,73 @@ def update_net(local_tslfs, local_mem_volt, local_syn_weights, local_fired, loca
 
 	local_fired[:] = np.zeros(num_all)
 
-	just_fired = np.where(local_mem_volt[:] > V_thresh + neur_params[:,3])
-
-	for n in just_fired:
+	just_fired = np.where(local_mem_volt[:] > V_thresh + local_neur_params[:,3])
+	for n in just_fired[0]:
 		local_mem_volt[n] = V_reset
 		local_tslfs[num_input + n] = 0
 		local_fired[num_input + n] = 1
-	return local_tslfs, local_mem_volt, local_fired, local_g_E, local_g_I
 
-train_data, train_labels = np.load('mnist_train_ones_zeros_data.npy'), np.load('mnist_train_ones_zeros_labels.npy')
+		if n < num_hidden_exc:
+			local_fired[num_input + n + num_hidden_exc] = 1 #fires the corresponding inhibitroy neurons
 
-data_idx = np.random.randint(10000)
-for s in range(sim_steps):
-	fired[:num_input] = convert_to_binary_1D_normalized(train_data[data_idx][0], input_prob)
-	jFs[:, s] = fired[:]
-	volts[:, s] = membrane_volts[:]
-	tslfs, membrane_volts, fired, g_E, g_I = update_net(tslfs, membrane_volts, synapses, fired, g_E, g_I)
+	if training:
+		local_neur_params[:,3] += del_t * (-1*local_neur_params[:,3] + fired[num_input:]*alpha*theta_init/np.abs(2*local_neur_params[:,3] - theta_init))/Tau_theta
 
+	return local_tslfs, local_mem_volt, local_neur_params, local_fired, local_g_E, local_g_I
+
+for e in range(epoch):
+	training = False
+	num_right = 0
+	if e%10 == 0:
+		batch_size = batch_size_test
+	else:
+		training = True
+		batch_size = batch_size_train
+
+	buffer_delta_syn_weights = np.zeros((num_neurons, num_all))
+	for b in range(batch_size):
+		data_idx = np.random.randint(len(train_data))
+		times_nuer_fire = []
+		membrane_volts = np.ones(num_neurons)*V_r
+		for s in range(sim_steps):
+			fired[:num_input] = convert_to_binary_1D_normalized(train_data[data_idx][0], input_prob)
+			if training:
+				fired[num_input+num_hidden_exc+num_hidden_inhib:] = np.zeros(10)
+				if np.random.rand() < 1/5:
+					fired[num_input+num_hidden_exc+num_hidden_inhib+train_labels[data_idx]] = 1
+			jFs[:, s] = fired[:]
+			volts[:, s] = membrane_volts[:]
+			tslfs, membrane_volts, neur_params, fired, g_E, g_I = update_net(tslfs, membrane_volts, neur_params, synapses, fired, g_E, g_I)
+		sum_output_fires = np.sum(jFs[num_all - num_out:, :], axis = 1)	
+			
+		for n in range(num_all):
+			times_nuer_fire.append(np.where(jFs[n, :] == 1)[0])
+
+		if training:
+			buffer_delta_syn_weights += stdp_but_faster(times_nuer_fire)
+		else:
+			num_right += train_labels[data_idx] == np.argmax(sum_output_fires)
+
+	if training:
+		print(e)
+		synapses += buffer_delta_syn_weights/batch_size
+		np.clip(synapses, 0, 1)
+		input_means = find_input_means()
+		synapse_adjustments = beta / input_means
+		synapses *= synapse_adjustments[:, np.newaxis]
+	else:
+		print(e, num_right/batch_size_test)
+		version = "synapses_" + str(e)
+		np.save(version, synapses)
+		version = "neur_params_" + str(e)
+		np.save(version, neur_params)
+
+print(train_labels[data_idx])
 print(np.sum(jFs[:num_input,:])/sim_steps)
 print(np.sum(jFs[num_input:,:]))
 print(np.sum(jFs[num_input+num_hidden_exc+num_hidden_inhib:,:]))
+
+
 plt.figure()
 plt.imshow(jFs)
 plt.figure()
