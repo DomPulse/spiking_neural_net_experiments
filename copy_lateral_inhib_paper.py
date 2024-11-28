@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 #copying this paper as close as I can: https://sci-hub.se/https://doi.org/10.1016/j.neunet.2019.09.007
 
-train_data, train_labels = np.load('mnist_train_ones_zeros_data.npy'), np.load('mnist_train_ones_zeros_labels.npy')
+train_data, train_labels = np.load('binary_mnist_train_data.npy'), np.load('binary_mnist_train_labels.npy')
 
 def convert_to_binary_1D_normalized(array_2D, max_probability=1.0):
 	flat_array = array_2D.flatten()
@@ -12,7 +12,7 @@ def convert_to_binary_1D_normalized(array_2D, max_probability=1.0):
 
 #hyperparameters or something
 epoch = 1000
-batch_size_train = 50
+batch_size_train = 25
 batch_size_test = 10
 learning_rate = 0.01
 beta = 0.1
@@ -175,7 +175,7 @@ def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights
 		if n < num_hidden_exc:
 			local_fired[num_input + n + num_hidden_exc] = 1 #fires the corresponding inhibitroy neurons
 
-	'''
+	
 	if training:
 		#this function looks weird in the paper and might not be exactly how they impliment it, check here for bugs
 
@@ -186,8 +186,7 @@ def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights
 		local_neur_params[:,3] += del_t * (-1*local_neur_params[:,3] + fired[num_input:]*1000)/(5000*Tau)
 		np.clip(local_neur_params[:,3], 10, 30)
 		#the constants here are just kind of emperically hand tuned, nothing too serious
-	'''
-
+	
 	return local_tslfs, local_mem_volt, local_neur_params, local_fired, local_g_E, local_g_I
 
 #pretrained kinda, just need to tune the firing rates right
@@ -195,6 +194,7 @@ def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights
 
 training = True
 batch_size = batch_size_train
+print("gay ming")
 for e in range(1, epoch):
 	
 	num_right = 0		
@@ -231,7 +231,7 @@ for e in range(1, epoch):
 		
 		if training:
 			#print(np.mean(neur_params[:, 3]))
-			buffer_delta_theta += firing_rate_update(real_jFs, train_labels[data_idx])
+			#buffer_delta_theta += firing_rate_update(real_jFs, train_labels[data_idx])
 			buffer_delta_syn_weights += stdp_but_faster(times_nuer_fire)
 
 		mean_fires_out += np.mean(sum_output_fires)/batch_size
@@ -240,18 +240,18 @@ for e in range(1, epoch):
 	#print(np.mean(synapses[:num_hidden_exc, :num_input]), np.mean(synapses[num_hidden_exc+num_hidden_inhib:, num_input:num_input+num_hidden_exc]), np.mean(synapses[:num_hidden_exc, num_input+num_hidden_exc:num_input+num_hidden_exc+num_hidden_inhib]))
 
 	synapses += buffer_delta_syn_weights/batch_size
-	neur_params[:, 3] *= buffer_delta_theta/batch_size
-	neur_params[:, 3] = np.clip(neur_params[:, 3], 10, 30)
+	#neur_params[:, 3] *= buffer_delta_theta/batch_size
+	#neur_params[:, 3] = np.clip(neur_params[:, 3], 10, 30)
 	synapses = np.clip(synapses, 0, 0.6)
 	
-	#input_means = find_input_means()
-	#synapse_adjustments = beta / input_means
-	#synapses *= synapse_adjustments[:, np.newaxis]
+	input_means = find_input_means()
+	synapse_adjustments = beta / input_means
+	synapses *= synapse_adjustments[:, np.newaxis]
 	
-	synapses[:num_hidden_exc, :num_input] *= 0.15/np.mean(synapses[:num_hidden_exc, :num_input])
-	synapses[num_hidden_exc+num_hidden_inhib:, num_input:num_input+num_hidden_exc] *= 0.15/np.mean(synapses[num_hidden_exc+num_hidden_inhib:, num_input:num_input+num_hidden_exc])
-	synapses[:num_hidden_exc, num_input+num_hidden_exc:num_input+num_hidden_exc+num_hidden_inhib] *= 0.15/np.mean(synapses[:num_hidden_exc, num_input+num_hidden_exc:num_input+num_hidden_exc+num_hidden_inhib])
-	synapses = np.clip(synapses, 0, 0.6)
+	#synapses[:num_hidden_exc, :num_input] *= 0.15/np.mean(synapses[:num_hidden_exc, :num_input])
+	#synapses[num_hidden_exc+num_hidden_inhib:, num_input:num_input+num_hidden_exc] *= 0.15/np.mean(synapses[num_hidden_exc+num_hidden_inhib:, num_input:num_input+num_hidden_exc])
+	#synapses[:num_hidden_exc, num_input+num_hidden_exc:num_input+num_hidden_exc+num_hidden_inhib] *= 0.15/np.mean(synapses[:num_hidden_exc, num_input+num_hidden_exc:num_input+num_hidden_exc+num_hidden_inhib])
+	#synapses = np.clip(synapses, 0, 0.6)
 		
 	version = "binary_train_synapses_" + str(e)
 	np.save(version, synapses)
