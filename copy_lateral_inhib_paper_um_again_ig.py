@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 #copying this paper as close as I can: https://sci-hub.se/https://doi.org/10.1016/j.neunet.2019.09.007
 
 train_data, train_labels = np.load('mnist_train_data.npy'), np.load('mnist_train_labels.npy')
-train_data, train_labels = np.load('quad_mnist_train_data.npy'), np.load('quad_mnist_train_labels.npy')
+#train_data, train_labels = np.load('quad_mnist_train_data.npy'), np.load('quad_mnist_train_labels.npy')
 
 def convert_to_binary_1D_normalized(array_2D, max_probability=1.0):
 	flat_array = array_2D.flatten()
@@ -13,9 +13,9 @@ def convert_to_binary_1D_normalized(array_2D, max_probability=1.0):
 
 #hyperparameters or something
 epoch = 1000
-batch_size_train = 25
+batch_size_train = 50
 batch_size_test = 10
-learning_rate = 0.05
+learning_rate = 0.025
 beta = 0.1
 
 sim_length = 350 #number of miliseconds in real time
@@ -39,8 +39,8 @@ theta_init = 20
 num_input = 784
 num_hidden_exc = 400
 num_hidden_inhib = num_hidden_exc
-num_out = 40
-num_class = 4
+num_out = 100
+num_class = 10
 num_neurons = num_hidden_exc + num_hidden_inhib + num_out
 num_all = num_neurons + num_input
 
@@ -191,7 +191,7 @@ def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights
 	return local_tslfs, local_mem_volt, local_neur_params, local_fired, local_g_E, local_g_I
 
 #this is just the spiking threshold stuff, no stdp happened
-neur_params = np.load("D:\\Neuro Sci\\bi_stable_competition\\241217_quad_train_only_wrong\\quad_train_neur_params_45.npy")
+#neur_params = np.load("D:\\Neuro Sci\\bi_stable_competition\\241217_quad_train_only_wrong\\quad_train_neur_params_45.npy")
 
 training = True
 batch_size = batch_size_train
@@ -266,11 +266,10 @@ for e in range(1, epoch):
 	#synapses[:num_hidden_exc, num_input+num_hidden_exc:num_input+num_hidden_exc+num_hidden_inhib] *= 0.15/np.mean(synapses[:num_hidden_exc, num_input+num_hidden_exc:num_input+num_hidden_exc+num_hidden_inhib])
 	#synapses = np.clip(synapses, 0, 0.6)
 	
-	if e%5 == 0:
-		version = "quad_train_synapses_" + str(e)
-		np.save(version, synapses)
-		version = "quad_train_neur_params_" + str(e)
-		np.save(version, neur_params)
+	version = "train_synapses_" + str(e)
+	np.save(version, synapses)
+	version = "train_neur_params_" + str(e)
+	np.save(version, neur_params)
 
 	print(e, num_right, mean_fires_out, np.mean(neur_params[:, 3]), np.mean(real_jFs[num_input:num_input+num_hidden_exc,:]))
 	
