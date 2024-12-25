@@ -13,7 +13,7 @@ def convert_to_binary_1D_normalized(array_2D, max_probability=1.0):
 
 #hyperparameters or something
 epoch = 1000
-batch_size_train = 50
+batch_size_train = 100
 batch_size_test = 10
 learning_rate = 0.025
 beta = 0.1
@@ -37,9 +37,9 @@ alpha = 8.4E5
 theta_init = 20
 
 num_input = 784
-num_hidden_exc = 400
+num_hidden_exc = 18*18
 num_hidden_inhib = num_hidden_exc
-num_out = 100
+num_out = 50
 num_class = 10
 num_neurons = num_hidden_exc + num_hidden_inhib + num_out
 num_all = num_neurons + num_input
@@ -115,7 +115,7 @@ for pre_syn_idx in range(num_all):
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
 		if adjusted_pre_syn_idx < num_hidden_exc and post_syn_idx >= num_hidden_exc + num_hidden_inhib: #hidden excite to the output neurons
-			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3*8
+			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 idx_pairs = np.array(idx_pairs)
 
@@ -184,7 +184,7 @@ def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights
 		#local_neur_params[:,3] += del_t * (-1*local_neur_params[:,3] + local_fired[num_input:]*alpha*theta_init/np.abs(2*local_neur_params[:,3] - theta_init))/Tau_theta
 
 		#but i'm writing my own that keeps the core idea of an exponential decay and increases weights as fired
-		local_neur_params[:,3] += del_t * (-1*local_neur_params[:,3] + fired[num_input:]*20000)/(5000*Tau)
+		local_neur_params[:,3] += del_t * (-1*local_neur_params[:,3] + fired[num_input:]*20000)/(7000*Tau)
 		#np.clip(local_neur_params[:,3], 10, 30)
 		#the constants here are just kind of emperically hand tuned, nothing too serious
 	
@@ -271,7 +271,7 @@ for e in range(1, epoch):
 	version = "train_neur_params_" + str(e)
 	np.save(version, neur_params)
 
-	print(e, num_right, mean_fires_out, np.mean(neur_params[:, 3]), np.mean(real_jFs[num_input:num_input+num_hidden_exc,:]))
+	print(e, num_right/batch_size_train, mean_fires_out, np.mean(neur_params[:, 3]), np.mean(real_jFs[num_input:num_input+num_hidden_exc,:]))
 	
 print(train_labels[data_idx])
 print(np.sum(jFs[:num_input,:])/sim_steps)
