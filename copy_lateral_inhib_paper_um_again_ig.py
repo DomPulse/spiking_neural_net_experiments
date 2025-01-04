@@ -98,7 +98,7 @@ def stdp_but_faster(spike_idxs):
 	for pair in idx_pairs:
 		pre_syn_idx = pair[0]
 		post_syn_idx = pair[1]
-		del_synapses[post_syn_idx][pre_syn_idx] += 5*learning_rate*(defaults[post_syn_idx][pre_syn_idx] - synapses[post_syn_idx][pre_syn_idx])
+		del_synapses[post_syn_idx][pre_syn_idx] += learning_rate*(defaults[post_syn_idx][pre_syn_idx] - synapses[post_syn_idx][pre_syn_idx])
 		for this_spike_time in spike_idxs[num_input + post_syn_idx]:
 			if np.size(spike_idxs[pre_syn_idx]) != 0:
 				delta_t = this_spike_time - find_nearest(spike_idxs[pre_syn_idx], this_spike_time)
@@ -112,7 +112,7 @@ for pre_syn_idx in range(num_all):
 	for post_syn_idx in range(num_neurons):
 		if pre_syn_idx < num_input and post_syn_idx < num_hidden_exc: #input to excitatory hidden
 			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3
-			defaults[post_syn_idx, pre_syn_idx] = 0.15
+			#defaults[post_syn_idx, pre_syn_idx] = 0.15
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
 		if post_syn_idx < num_hidden_exc and adjusted_pre_syn_idx > num_hidden_exc and adjusted_pre_syn_idx < num_hidden_exc + num_hidden_inhib and adjusted_pre_syn_idx != post_syn_idx: #hidden inhib to all hidden excite
@@ -122,7 +122,7 @@ for pre_syn_idx in range(num_all):
 
 		if adjusted_pre_syn_idx < num_hidden_exc and post_syn_idx >= num_hidden_exc + num_hidden_inhib: #hidden excite to the output neurons
 			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3
-			defaults[post_syn_idx, pre_syn_idx] = 0.15
+			#defaults[post_syn_idx, pre_syn_idx] = 0.15
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 idx_pairs = np.array(idx_pairs)
 
