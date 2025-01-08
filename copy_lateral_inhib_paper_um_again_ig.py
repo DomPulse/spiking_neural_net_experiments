@@ -26,9 +26,9 @@ batch_size_test = 10
 learning_rate = 0.025
 beta = 0.1
 betas = np.ones(num_neurons)*0.15
-max_weight = 8
+max_weight = 10
 
-sim_length = 350 #number of miliseconds in real time
+sim_length = 700 #number of miliseconds in real time
 del_t = 0.5 #in seconds
 sim_steps = int(sim_length/del_t) #number of time steps taken
 
@@ -76,21 +76,6 @@ def find_nearest(array, value):
 	except:
 		print(array, value)
 		return(np.nan())
-
-def firing_rate_update(jFs, target):
-	des_fire_rate = np.mean(jFs[:num_input, :])
-	#print(np.mean(jFs[:num_input, :]), np.mean(jFs[num_input:num_input+num_hidden_exc, :]), np.mean(jFs[num_all-(target+1), :]))
-	excite_return = (2*np.mean(jFs[num_input:num_input+num_hidden_exc, :], axis = 1))/des_fire_rate
-	out_return = np.ones(num_out)
-	for n in range(num_out):
-		if n%num_class == target:
-			out_return[n] = (3*np.mean(jFs[num_all-(n+1), :]))/des_fire_rate
-
-	returned = np.ones(num_neurons)
-	returned[:num_hidden_exc] = excite_return[:]
-	returned[num_hidden_exc+num_hidden_inhib:] = out_return[:]
-	returned = np.clip(returned, 0.9, 1.1)
-	return returned
 
 def stdp_but_faster(spike_idxs):
 	#boy i sure do hope the indexing is right, if only i was smart enough to know how my own code works
@@ -191,7 +176,7 @@ def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights
 		#local_neur_params[:,3] += del_t * (-1*local_neur_params[:,3] + local_fired[num_input:]*alpha*theta_init/np.abs(2*local_neur_params[:,3] - theta_init))/Tau_theta
 
 		#but i'm writing my own that keeps the core idea of an exponential decay and increases weights as fired
-		local_neur_params[:,3] += del_t * (-1*local_neur_params[:,3] + fired[num_input:]*20000)/(7000*Tau)
+		local_neur_params[:,3] += del_t * (-1*local_neur_params[:,3] + fired[num_input:]*25000)/(7000*Tau)
 		#np.clip(local_neur_params[:,3], 10, 30)
 		#the constants here are just kind of emperically hand tuned, nothing too serious
 	
@@ -216,7 +201,7 @@ for e in range(1, epoch):
 		times_nuer_fire = []
 		membrane_volts = np.ones(num_neurons)*V_r
 		for s in range(sim_steps):
-			fired[:num_input] = convert_to_binary_1D_normalized(0.05*train_data[data_idx][0]/np.mean(train_data[data_idx][0]), input_prob) #this auto normalizes input strength (hopefully)
+			fired[:num_input] = convert_to_binary_1D_normalized(0.025*train_data[data_idx][0]/np.mean(train_data[data_idx][0]), input_prob) #this auto normalizes input strength (hopefully)
 			#fired[:num_input] = convert_to_binary_1D_normalized(train_data[data_idx][0], input_prob) 
 			tslfs, membrane_volts, neur_params, fired, g_E, g_I = update_net(tslfs, membrane_volts, neur_params, synapses, fired, g_E, g_I)
 			real_jFs[:, s] = fired[:]
