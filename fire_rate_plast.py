@@ -21,6 +21,7 @@ num_all = num_neurons + num_input
 
 #hyperparameters or something
 epoch = 1000
+just_tryin_something = 100
 batch_size_train = 100
 batch_size_test = 10
 learning_rate = 0.025
@@ -78,18 +79,25 @@ def find_nearest(array, value):
 		print(array, value)
 		return(np.nan())
 
+def gooning(stren):
+	num = (0.5-stren)**(1/5)
+	if num != num:
+		return -0.25
+	return num
+
 def fire_rate_plast(fireball):
 	#boy i sure do hope the indexing is right, if only i was smart enough to know how my own code works
 	del_synapses = np.zeros((num_neurons, num_all))
 	for pair in idx_pairs:
 		pre_syn_idx = pair[0]
 		post_syn_idx = pair[1]
-		del_synapses[post_syn_idx][pre_syn_idx] += 0.1*learning_rate*(defaults[post_syn_idx][pre_syn_idx] - synapses[post_syn_idx][pre_syn_idx])
+		 #this ought to be tuned
+		del_synapses[post_syn_idx][pre_syn_idx] += 0.025*learning_rate*(defaults[post_syn_idx][pre_syn_idx] - synapses[post_syn_idx][pre_syn_idx])
 		stren = fireball[pre_syn_idx]*fireball[post_syn_idx+num_input]
 		if exin_array[pre_syn_idx] == 1:
 			del_synapses[post_syn_idx][pre_syn_idx] += learning_rate*stren
 		else:
-			del_synapses[post_syn_idx][pre_syn_idx] += learning_rate/(1+stren)
+			del_synapses[post_syn_idx][pre_syn_idx] += 0.25*learning_rate*gooning(stren) #this function really strongly inhibits things that aren't firing together but allows some to get through, tune the 0.9 for the threshold it allows and the 1/5 for the steepness of this almost step function, doing this cuz the histogram of weights is nearly uniform
 		
 	return del_synapses
 
@@ -103,9 +111,10 @@ for pre_syn_idx in range(num_all):
 			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
-		if post_syn_idx < num_hidden_exc and adjusted_pre_syn_idx > num_hidden_exc and adjusted_pre_syn_idx < num_hidden_exc + num_hidden_inhib and adjusted_pre_syn_idx != post_syn_idx: #hidden inhib to all hidden excite
+		if post_syn_idx < num_hidden_exc and adjusted_pre_syn_idx >= num_hidden_exc and adjusted_pre_syn_idx < num_hidden_exc + num_hidden_inhib and adjusted_pre_syn_idx != post_syn_idx: #hidden inhib to all hidden excite
 			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3*max_weight
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
+			defaults[post_syn_idx, pre_syn_idx] = np.random.rand()*0.15*max_weight
 
 		if adjusted_pre_syn_idx < num_hidden_exc and post_syn_idx >= num_hidden_exc + num_hidden_inhib: #hidden excite to the output neurons
 			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*0.3
@@ -186,11 +195,14 @@ def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights
 #this is just the spiking threshold stuff, no stdp happened
 #neur_params = np.load("D:\\Neuro Sci\\bi_stable_competition\\241217_quad_train_only_wrong\\quad_train_neur_params_45.npy")
 
+synapses = np.load("250116_fire_rae_plast_diff_inhib_rule\\train_synapses_15.npy")
+neur_params = np.load("250116_fire_rae_plast_diff_inhib_rule\\train_neur_params_15.npy")
+
 training = True
 batch_size = batch_size_train
 print("gay ming")
 
-for e in range(1, epoch):
+for e in range(16, epoch):
 
 	num_right = 0
 	buffer_delta_syn_weights = np.zeros((num_neurons, num_all))
@@ -224,7 +236,7 @@ for e in range(1, epoch):
 		num_right += is_right
 		
 		#doing this so the thresh has time to decay before stdp happens which takes lot of time
-		if e > 11:
+		if e > 15:
 			
 			sum_fire_each_neuron = np.sum(stdp_jFs, axis = 1)
 			sum_fire_each_neuron = np.clip(sum_fire_each_neuron, 0, max_expected_fire)
@@ -232,7 +244,8 @@ for e in range(1, epoch):
 			
 			buffer_delta_syn_weights += fire_rate_plast(sum_fire_each_neuron)
 
-			synapses += buffer_delta_syn_weights/batch_size
+			#yeah this is goofy but it is better thann the alternative
+			synapses += buffer_delta_syn_weights/batch_size_train
 			synapses = np.clip(synapses, 0, max_weight)
 				
 	version = "train_synapses_" + str(e)
