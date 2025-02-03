@@ -79,7 +79,7 @@ def find_nearest(array, value):
 		print(array, value)
 		return(np.nan())
 
-def gooning(stren):
+def inhib_func(stren):
 	num = (0.5-stren)**(1/5)
 	if num != num:
 		return -0.25
@@ -97,7 +97,7 @@ def fire_rate_plast(fireball):
 		if exin_array[pre_syn_idx] == 1:
 			del_synapses[post_syn_idx][pre_syn_idx] += learning_rate*stren
 		else:
-			del_synapses[post_syn_idx][pre_syn_idx] += 0.25*learning_rate*gooning(stren) #this function really strongly inhibits things that aren't firing together but allows some to get through, tune the 0.9 for the threshold it allows and the 1/5 for the steepness of this almost step function, doing this cuz the histogram of weights is nearly uniform
+			del_synapses[post_syn_idx][pre_syn_idx] += 0.25*learning_rate*inhib_func(stren) #this function really strongly inhibits things that aren't firing together but allows some to get through, tune the 0.9 for the threshold it allows and the 1/5 for the steepness of this almost step function, doing this cuz the histogram of weights is nearly uniform
 		
 	return del_synapses
 
@@ -200,7 +200,6 @@ neur_params = np.load("250116_fire_rae_plast_diff_inhib_rule\\train_neur_params_
 
 training = True
 batch_size = batch_size_train
-print("gay ming")
 
 for e in range(16, epoch):
 
