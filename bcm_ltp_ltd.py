@@ -98,7 +98,12 @@ def cherry_pie(c, c_avg, c0):
 		pre_syn_idx = pair[0]
 		post_syn_idx = pair[1]
 		direction = exin_array[pre_syn_idx]*2 - 1 #reverses direction of training for inhibitory neurons i hope
-		del_synapses[post_syn_idx][pre_syn_idx] -= slope*(synapses[post_syn_idx][pre_syn_idx] - defaults[post_syn_idx][pre_syn_idx])
+
+		#del_synapses[post_syn_idx][pre_syn_idx] -= slope*(synapses[post_syn_idx][pre_syn_idx] - defaults[post_syn_idx][pre_syn_idx])
+		#we be trying something
+		diff = (synapses[post_syn_idx][pre_syn_idx] - defaults[post_syn_idx][pre_syn_idx])
+		del_synapses[post_syn_idx][pre_syn_idx] -= slope*((diff) + 0.1*diff**3)
+
 		d = c[pre_syn_idx]
 		del_synapses[post_syn_idx][pre_syn_idx] += direction*np.mean(phi(c[post_syn_idx + num_input], c_avg[post_syn_idx + num_input], 0.045)*d)
 
