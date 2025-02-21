@@ -1,11 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-epoch = 10
+epoch = 2
 stren_mults = 10*np.exp(-1*np.linspace(0, 4, epoch))
 print(stren_mults)
-batch_size_train = 25
-learning_rate = 2
+batch_size_train = 100
+learning_rate = 1
 
 sim_length = 1000 #number of miliseconds in real time
 del_t = 0.5 #in milliseconds
@@ -88,19 +88,21 @@ def phi(c, c_avg, c0 = 0.6, p = 0.75, strength = 1):
 	thresh = c_avg*(c_avg/c0)**p
 	return c*(c-thresh)/(1+c**2)
 
-def cherry_pie(c, c_avg):
+def cherry_pie(c, c_avg, c0):
 	del_synapses = np.zeros((num_neurons, num_all))
 	steps = len(c[0])
-	decay = np.mean(synapses)/40
+	to_deriv = np.linspace(0, 0.12, 100)
+	zero_idx = np.argmin(np.abs(to_deriv - c0))
+	slope = (phi(to_deriv[zero_idx+1], c0, c0) - phi(to_deriv[zero_idx-1], c0, c0))/(to_deriv[zero_idx+1] - to_deriv[zero_idx-1]) #we find tangent near the c0 point so we can set the decay to cancel small canges i guess
 	for pair in idx_pairs:
 		pre_syn_idx = pair[0]
 		post_syn_idx = pair[1]
 		direction = exin_array[pre_syn_idx]*2 - 1 #reverses direction of training for inhibitory neurons i hope
-		#del_synapses[post_syn_idx][pre_syn_idx] -= decay*(synapses[post_syn_idx][pre_syn_idx])
+		del_synapses[post_syn_idx][pre_syn_idx] -= slope*(synapses[post_syn_idx][pre_syn_idx] - defaults[post_syn_idx][pre_syn_idx])
 		d = c[pre_syn_idx]
-		del_synapses[post_syn_idx][pre_syn_idx] += direction*np.mean(phi(c[post_syn_idx + num_input], c_avg[post_syn_idx + num_input], 0.025)*d)
+		del_synapses[post_syn_idx][pre_syn_idx] += direction*np.mean(phi(c[post_syn_idx + num_input], c_avg[post_syn_idx + num_input], 0.045)*d)
 
-	#del_synapses *= learning_rate
+	del_synapses *= learning_rate
 	return del_synapses
 
 def convert_to_binary_1D_normalized(array_2D, max_probability=0.2):
@@ -119,7 +121,8 @@ for pre_syn_idx in range(num_all):
 			pass
 
 		elif pre_syn_idx < num_input and post_syn_idx < num_out: #input to excitatory hidden
-			synapses[post_syn_idx, pre_syn_idx] = np.random.rand()*weight_tune
+			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, 0.5), 0])
+			defaults[post_syn_idx, pre_syn_idx] = weight_tune
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
 for n in range(num_neurons):
@@ -194,50 +197,61 @@ mean_region_ot = np.zeros((2, sim_steps-look_back+1))
 above_avg_fire_by_class = np.zeros((2, num_out))
 buffer_delta_syn_weights = np.zeros((num_neurons, num_all))
 mean_response = []
-for b in range(batch_size_train):
-	train_class = np.random.randint(0, 2)
-	train_class = 0
-	smoothed_fires = np.zeros((num_all, sim_steps-look_back+1))
-	jFs = np.zeros((num_all, sim_steps))
-	membrane_volts = np.random.normal(1, 0.025, num_neurons)*V_r
-	g_E = np.zeros(num_neurons)
-	g_I = np.zeros(num_neurons)
-	tslfs = np.ones(num_all)*1000
+for e in range(epoch):
+	for b in range(batch_size_train):
+		train_class = np.random.randint(0, 2)
+		train_class = 0
+		smoothed_fires = np.zeros((num_all, sim_steps-look_back+1))
+		jFs = np.zeros((num_all, sim_steps))
+		membrane_volts = np.random.normal(1, 0.025, num_neurons)*V_r
+		g_E = np.zeros(num_neurons)
+		g_I = np.zeros(num_neurons)
+		tslfs = np.ones(num_all)*1000
+	
+		for s in range(sim_steps):
+			if b > 10 and b < 20 and e > 0:
+				fired[:num_input] = convert_to_binary_1D_normalized(woah_dude[train_class], induce_stim_stren)
+			else:
+				fired[:num_input] = convert_to_binary_1D_normalized(woah_dude[train_class], test_stim_stren)
+			tslfs, membrane_volts, fired, g_E, g_I = update_net(tslfs, membrane_volts, neur_params, synapses, fired, g_E, g_I)
+			jFs[:, s] = fired[:]
+			volts[:, s] = membrane_volts[:]
+		
+		'''
+		if b%50 == 0 and e > 0:
+			plt.imshow(jFs, aspect = 'auto', interpolation  = 'nearest')
+			plt.show()
+			
+			plt.imshow(synapses, aspect = 'auto', interpolation  = 'nearest')
+			plt.show()
+		'''
+		
+		avg_fire_rate[b] = np.mean(jFs, axis = 1) #average for each neuron in this run
+		
+		if e > 0:
+			c_avg = np.mean(avg_fire_rate, axis = 0) #average for each neuron over the last batch size (like 100 or something)
+			for n in range(num_all):
+				smoothed_fires[n, :] = simple_moving_average(jFs[n], look_back)
+			buffer_delta_syn_weights += cherry_pie(smoothed_fires, c_avg, np.mean(c_avg[num_input:]))
+			synapses += buffer_delta_syn_weights
+			synapses = np.clip(synapses, 0, 3*weight_tune)
+		
+			above_avg_fire = avg_fire_rate[b, num_all - num_out:] >= np.mean(avg_fire_rate[b, num_all - num_out:])
+			above_avg_fire_by_class[train_class] += above_avg_fire
+			mean_region_ot[0, :] += np.sum(smoothed_fires[:num_input], axis = 0)/(num_input*batch_size_train)
+			mean_region_ot[1, :] += np.sum(smoothed_fires[num_input:], axis = 0)/(num_out*batch_size_train)
+			print(np.mean(smoothed_fires[num_input:]), np.mean(c_avg[num_input:]), np.mean(buffer_delta_syn_weights), np.mean(synapses))
+			mean_response.append(np.mean(smoothed_fires[num_input:]))
 
-	for s in range(sim_steps):
-		if b == 10:
-			fired[:num_input] = convert_to_binary_1D_normalized(woah_dude[train_class], induce_stim_stren)
-		else:
-			fired[:num_input] = convert_to_binary_1D_normalized(woah_dude[train_class], test_stim_stren)
-		tslfs, membrane_volts, fired, g_E, g_I = update_net(tslfs, membrane_volts, neur_params, synapses, fired, g_E, g_I)
-		jFs[:, s] = fired[:]
-		volts[:, s] = membrane_volts[:]
-
-	#plt.imshow(jFs, aspect = 'auto', interpolation  = 'nearest')
-	#plt.show()
-	avg_fire_rate[b] = np.mean(jFs, axis = 1) #average for each neuron in this run
-
-	c_avg = np.mean(avg_fire_rate, axis = 0) #average for each neuron over the last batch size (like 100 or something)
-	for n in range(num_all):
-		smoothed_fires[n, :] = simple_moving_average(jFs[n], look_back)
-	buffer_delta_syn_weights += cherry_pie(smoothed_fires, c_avg)
-	synapses += buffer_delta_syn_weights
-	synapses = np.clip(synapses, 0, 3*weight_tune)
-
-	above_avg_fire = avg_fire_rate[b, num_all - num_out:] >= np.mean(avg_fire_rate[b, num_all - num_out:])
-	above_avg_fire_by_class[train_class] += above_avg_fire
-	mean_region_ot[0, :] += np.sum(smoothed_fires[:num_input], axis = 0)/(num_input*batch_size_train)
-	mean_region_ot[1, :] += np.sum(smoothed_fires[num_input:], axis = 0)/(num_out*batch_size_train)
-	print(np.mean(smoothed_fires[num_input:]), np.mean(buffer_delta_syn_weights), np.mean(synapses))
-	mean_response.append(np.mean(smoothed_fires[num_input:]))
-
+plt.figure()
 plt.plot(mean_response)
+
+
+plt.figure()
+plt.imshow(synapses, aspect = 'auto', interpolation  = 'nearest', extent = [-num_input, num_neurons, num_neurons, 0])
+plt.ylabel('post_syn_idx')
+plt.xlabel('pre_syn_idx')
+
 plt.show()
-	
 
-	
-	#goofy = ((above_avg_fire_by_class[0, :] > above_avg_fire_by_class[1, :]) + (1 - (above_avg_fire_by_class[0, :] < above_avg_fire_by_class[1, :])))/2
-	#plt.imshow(goofy.reshape((sqrt_num_out,sqrt_num_out)), aspect = 'auto', interpolation  = 'nearest')
-	#plt.show()
 
-				
