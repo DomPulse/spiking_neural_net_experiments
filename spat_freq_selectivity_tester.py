@@ -1,12 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 epoch = 2
 stren_mults = 10*np.exp(-1*np.linspace(0, 4, epoch))
 print(stren_mults)
 batch_size_prime = 10
-batch_size_test = 2000
+batch_size_test = 100
 learning_rate = 0.1
 
 sim_length = 1000 #number of miliseconds in real time
@@ -82,73 +81,13 @@ def simple_moving_average(data, window_size):
 	# Use NumPy's convolution for efficient calculation
 	return np.convolve(data, np.ones(window_size) / window_size, mode='valid')*1000/(del_t) #should be firing rate Hz
 
-def phi(c, c_avg, c0, p = 2, strength = 1):
-	#https://www.desmos.com/calculator/wriw5fmx6b
-	#that desmos graph has the template function
-	#strength is a new addition, it is basically learning rate
-	thresh = c_avg*(c_avg/c0)**p
-	return c*(c-thresh)/(1+c**2)
-
-def cherry_pie(c, c_avg, c0):
-	del_synapses = np.zeros((num_neurons, num_all))
-	to_deriv = np.linspace(0, 100, 200)
-	zero_idx = np.argmin(np.abs(to_deriv - c0))
-	slope = (phi(to_deriv[zero_idx+1], c0, c0) - phi(to_deriv[zero_idx-1], c0, c0))/(to_deriv[zero_idx+1] - to_deriv[zero_idx-1]) #we find tangent near the c0 point so we can set the decay to cancel small canges i guess
-	slope = 0.03
-	norm_phi = np.mean(c)*200 #ngl idk where the factor comes from but it is aparently needed
-	ums = []
-	dums = []
-	for pair in idx_pairs:
-		pre_syn_idx = pair[0]
-		post_syn_idx = pair[1]
-		
-		um = slope*(synapses[post_syn_idx][pre_syn_idx] - defaults[post_syn_idx][pre_syn_idx])
-		del_synapses[post_syn_idx][pre_syn_idx] -= um
-		ums.append(um)
-
-		#we be trying something
-		#diff = (synapses[post_syn_idx][pre_syn_idx] - defaults[post_syn_idx][pre_syn_idx])
-		#del_synapses[post_syn_idx][pre_syn_idx] -= slope*((diff) + 0.1*diff**3)
-		
-		direction = exin_array[pre_syn_idx]*2 - 1 #reverses direction of training for inhibitory neurons i hope
-		d = c[pre_syn_idx]
-		dum = direction*np.mean(phi(c[post_syn_idx + num_input], c_avg[post_syn_idx + num_input], c0)*d)/norm_phi #div by mean c to normalize or sm
-		del_synapses[post_syn_idx][pre_syn_idx] += dum
-		#dums.append(dum)
-
-	#print(np.mean(dums), np.mean(ums))
-
-	del_synapses *= learning_rate
-	return del_synapses
-
 def convert_to_binary_1D_normalized(array_2D, max_probability=0.2):
 	flat_array = array_2D.flatten()
 	probabilities = flat_array * max_probability
 	binary_1D_array = np.random.rand(len(flat_array)) < probabilities
 	return binary_1D_array.astype(int)  # Convert boolean to int (0 or 1)
 
-#this do be the architecture generation
-for pre_syn_idx in range(num_all):
-	adjusted_pre_syn_idx = pre_syn_idx - num_input
-	if adjusted_pre_syn_idx < 0:
-		adjusted_pre_syn_idx = num_all + 1000
-	for post_syn_idx in range(num_neurons):
-		if np.random.rand() < dropout:
-			pass
 
-		elif pre_syn_idx < num_input and post_syn_idx < num_out: #input to excitatory hidden
-			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, 0.5), 0])
-			defaults[post_syn_idx, pre_syn_idx] = weight_tune
-			idx_pairs.append([pre_syn_idx, post_syn_idx])
-
-for n in range(num_neurons):
-	neur_params[n, :] = excite_neur_params[:]
-	if np.random.rand() < frac_inhib and n < num_neurons:
-		neur_params[n, :] = inhib_neur_params[:]
-		exin_array[num_input + n] = 0
-	
-idx_pairs = np.array(idx_pairs)
-print(len(idx_pairs))
 
 def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights, local_fired, local_g_E, local_g_I):
 
@@ -180,8 +119,9 @@ def update_net(local_tslfs, local_mem_volt, local_neur_params, local_syn_weights
 	
 	return local_tslfs, local_mem_volt, local_fired, local_g_E, local_g_I
 
-np.save('exin_array', exin_array)
-np.save('neur_params', neur_params)
+exin_array = np.load('exin_array.npy')
+neur_params = np.load('neur_params.npy')
+synapses = np.load('synapses.npy')
 
 '''
 plt.imshow(synapses, aspect = 'auto', interpolation  = 'nearest', extent = [-num_input, num_neurons, num_neurons, 0])
@@ -210,6 +150,7 @@ i_have_stds = []
 mean_syn = []
 mean_in_region = np.zeros((2, batch_size_test))
 
+num_right = 0
 for e in range(epoch):
 	if e == 0:
 		this_batch_please = batch_size_prime
@@ -236,55 +177,31 @@ for e in range(epoch):
 			jFs[:, s] = fired[:]
 			volts[:, s] = membrane_volts[:]
 		
-		train_jFs = jFs*train_fire_mask[train_class]
-		
-		'''
-		if e != 0:
-			#plt.imshow(synapses, aspect = 'auto', interpolation  = 'nearest')
-			#plt.show()
-			plt.imshow(jFs, aspect = 'auto', interpolation  = 'nearest')
-			plt.show()
-		'''
-		
 		avg_fire_rate[b] = np.sum(jFs, axis = 1)*1000/(sim_length) #average for each neuron in this run
 
 		if e > 0:
 			c_avg = np.mean(avg_fire_rate, axis = 0) #average for each neuron over the last batch size (like 100 or something)
 			for n in range(num_all):
-				train_smoothed_fires[n, :] = simple_moving_average(train_jFs[n], look_back)
 				smoothed_fires[n, :] = simple_moving_average(jFs[n], look_back)
-			synapses += cherry_pie(train_smoothed_fires, c_avg, np.mean(c_avg))
-			synapses = np.clip(synapses, 0, 3*weight_tune)
 		
 			above_avg_fire = avg_fire_rate[b, num_all - num_out:] >= np.mean(avg_fire_rate[b, num_all - num_out:])
 			above_avg_fire_by_class[train_class] += above_avg_fire
-
-			if b%20 == 0:
-				print(b, np.mean(smoothed_fires[num_input:]), np.mean(c_avg[num_input:]), np.mean(synapses))
 			
-			i_have_stds.append(np.std(synapses))
-			mean_syn.append(np.mean(synapses))
+			mean_response.append(np.mean(smoothed_fires[num_input:]))
 			mean_in_region[0, b] = np.mean(smoothed_fires[num_input::2])
 			mean_in_region[1, b] = np.mean(smoothed_fires[num_input+1::2])
+			print(b, train_class, mean_in_region[0, b] > mean_in_region[1, b])
+			num_right += train_class == (mean_in_region[0, b] > mean_in_region[1, b] )
 			#plt.imshow(smoothed_fires, aspect = 'auto', interpolation  = 'nearest')
 			#plt.show()
 
-np.save('synapses', synapses)
+print(num_right)
 
 plt.figure()
 plt.title('mean response')
-plt.plot((mean_in_region[0]+mean_in_region[1])/2, label = 'mean for both')
 plt.plot(mean_in_region[0], label = 'region 1')
 plt.plot(mean_in_region[1], label = 'region 2')
 plt.legend()
-
-plt.figure()
-plt.title('synapse avg')
-plt.plot(mean_syn)
-
-plt.figure()
-plt.title('synapse std')
-plt.plot(i_have_stds)
 
 plt.figure()
 plt.imshow(synapses, aspect = 'auto', interpolation  = 'nearest', extent = [-num_input, num_neurons, num_neurons, 0])
