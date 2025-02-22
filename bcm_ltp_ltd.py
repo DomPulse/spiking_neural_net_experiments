@@ -6,8 +6,8 @@ epoch = 2
 stren_mults = 10*np.exp(-1*np.linspace(0, 4, epoch))
 print(stren_mults)
 batch_size_prime = 10
-batch_size_test = 2000
-learning_rate = 0.1
+batch_size_test = 50
+learning_rate = 1
 
 sim_length = 1000 #number of miliseconds in real time
 del_t = 0.5 #in milliseconds
@@ -28,7 +28,7 @@ sqrt_num_out = 10
 num_input = sqrt_num_input*sqrt_num_input
 spat_freq = 2
 test_stim_stren = 0.05
-induce_stim_stren = 0.05
+induce_stim_stren = 0.07
 desired_fire_freq = 30
 external_stim_freq = 100
 freq_in_steps = int((1000/external_stim_freq)/del_t)
@@ -95,7 +95,7 @@ def cherry_pie(c, c_avg, c0):
 	zero_idx = np.argmin(np.abs(to_deriv - c0))
 	slope = (phi(to_deriv[zero_idx+1], c0, c0) - phi(to_deriv[zero_idx-1], c0, c0))/(to_deriv[zero_idx+1] - to_deriv[zero_idx-1]) #we find tangent near the c0 point so we can set the decay to cancel small canges i guess
 	slope = 0.03
-	norm_phi = np.mean(c)*200 #ngl idk where the factor comes from but it is aparently needed
+	norm_phi = np.mean(c)*100 #ngl idk where the factor comes from but it is aparently needed
 	ums = []
 	dums = []
 	for pair in idx_pairs:
@@ -218,7 +218,7 @@ for e in range(epoch):
 		avg_fire_rate = np.ones((batch_size_test, num_all))*np.mean(avg_fire_rate)
 	for b in range(this_batch_please):
 		train_class = np.random.randint(0, 2)
-		#train_class = 0
+		train_class = 0
 		smoothed_fires = np.zeros((num_all, sim_steps-look_back+1))
 		train_smoothed_fires = np.zeros((num_all, sim_steps-look_back+1))
 		jFs = np.zeros((num_all, sim_steps))
@@ -228,7 +228,7 @@ for e in range(epoch):
 		tslfs = np.ones(num_all)*1000
 	
 		for s in range(sim_steps):
-			if b > 10 and b < 20 and e > 0:
+			if b == 30 and e > 0:
 				fired[:num_input] = convert_to_binary_1D_normalized(woah_dude[train_class], induce_stim_stren)
 			else:
 				fired[:num_input] = convert_to_binary_1D_normalized(woah_dude[train_class], test_stim_stren)
@@ -236,7 +236,7 @@ for e in range(epoch):
 			jFs[:, s] = fired[:]
 			volts[:, s] = membrane_volts[:]
 		
-		train_jFs = jFs*train_fire_mask[train_class]
+		train_jFs = jFs#*train_fire_mask[train_class]
 		
 		'''
 		if e != 0:
