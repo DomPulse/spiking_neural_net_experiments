@@ -6,7 +6,7 @@ epoch = 2
 stren_mults = 10*np.exp(-1*np.linspace(0, 4, epoch))
 print(stren_mults)
 batch_size_prime = 10
-batch_size_test = 2000
+batch_size_test = 2500
 learning_rate = 0.1
 
 sim_length = 1000 #number of miliseconds in real time
@@ -33,12 +33,13 @@ desired_fire_freq = 30
 external_stim_freq = 100
 freq_in_steps = int((1000/external_stim_freq)/del_t)
 num_out = sqrt_num_out*sqrt_num_out
-num_inhib = 20
+num_inhib = 50
 num_neurons = num_out + num_inhib
 num_all = num_neurons + num_input
 max_expected_fire = 30 #bit arbitrary init?
-dropout = 0.2
+dropout = 0.5
 weight_tune = 0.5
+weight_std = 0.5
 
 #these are, capacitence in nF, leak conductance in nano siemens, and the time constant for synaptic conductance which is currently unuse, then the threshold increase which is dynamic in this paper
 excite_neur_params = [0.5, 25, 20, theta_init]
@@ -136,19 +137,29 @@ for pre_syn_idx in range(num_all):
 		if np.random.rand() < dropout:
 			pass
 
-		elif pre_syn_idx < num_input and post_syn_idx < num_neurons: #input to excitatory hidden
-			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, 0.5), 0])
+		elif pre_syn_idx < num_input and post_syn_idx >= num_inhib and post_syn_idx < num_neurons: #in to ouut
+			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
 			defaults[post_syn_idx, pre_syn_idx] = weight_tune
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
-		elif adjusted_pre_syn_idx < num_inhib and post_syn_idx >= num_inhib and post_syn_idx < num_neurons: #input to excitatory hidden
-			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, 0.5), 0])
+		elif adjusted_pre_syn_idx < num_inhib and post_syn_idx >= num_inhib and post_syn_idx < num_neurons: #inhib to out
+			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
+			defaults[post_syn_idx, pre_syn_idx] = weight_tune
+			idx_pairs.append([pre_syn_idx, post_syn_idx])
+
+		elif adjusted_pre_syn_idx >= num_inhib and adjusted_pre_syn_idx < num_neurons and post_syn_idx >= num_inhib and post_syn_idx < num_neurons: #out to out
+			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
+			defaults[post_syn_idx, pre_syn_idx] = weight_tune
+			idx_pairs.append([pre_syn_idx, post_syn_idx])
+
+		elif post_syn_idx < num_inhib and adjusted_pre_syn_idx >= num_inhib and adjusted_pre_syn_idx < num_neurons: #out to inhib
+			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
 			defaults[post_syn_idx, pre_syn_idx] = weight_tune
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
 for n in range(num_neurons):
 	neur_params[n, :] = excite_neur_params[:]
-	if n < num_inhib:
+	if n < num_inhib and np.random.rand() > 0.5:
 		neur_params[n, :] = inhib_neur_params[:]
 		exin_array[num_input + n] = 0
 	
@@ -199,10 +210,11 @@ xs = np.linspace(-1, 1, sqrt_num_input)
 ys = np.linspace(-1, 1, sqrt_num_input)
 gaming = np.zeros((sqrt_num_input, sqrt_num_input))
 angles = [0, np.pi/2]
+offset = 0
 
 #generates a mask that will effectively half the firing rate of the neurons we don't want firing for a given class
 train_fire_mask = np.ones((2, num_all, sim_steps))
-for n in range(num_neurons):
+for n in range(num_inhib, num_neurons):
 	train_fire_mask[n%2, num_input + n, ::2] = np.zeros(sim_steps//2)
 
 avg_fire_rate = np.zeros((batch_size_prime, num_all))

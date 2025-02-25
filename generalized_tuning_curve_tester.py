@@ -6,7 +6,7 @@ epoch = 2
 stren_mults = 10*np.exp(-1*np.linspace(0, 4, epoch))
 print(stren_mults)
 batch_size_prime = 10
-batch_size_test = 500
+batch_size_test = 100
 learning_rate = 0.1
 
 sim_length = 1000 #number of miliseconds in real time
@@ -33,12 +33,13 @@ desired_fire_freq = 30
 external_stim_freq = 100
 freq_in_steps = int((1000/external_stim_freq)/del_t)
 num_out = sqrt_num_out*sqrt_num_out
-num_inhib = 20
+num_inhib = 50
 num_neurons = num_out + num_inhib
 num_all = num_neurons + num_input
 max_expected_fire = 30 #bit arbitrary init?
-dropout = 0.2
+dropout = 0.5
 weight_tune = 0.5
+weight_std = 0.5
 
 #these are, capacitence in nF, leak conductance in nano siemens, and the time constant for synaptic conductance which is currently unuse, then the threshold increase which is dynamic in this paper
 excite_neur_params = [0.5, 25, 20, theta_init]
@@ -156,7 +157,7 @@ for e in range(epoch):
 		this_batch_please = batch_size_test
 		avg_fire_rate = np.ones((batch_size_test, num_all))*np.mean(avg_fire_rate)
 	for b in range(this_batch_please):
-		train_class = np.random.randint(0, 2)
+		train_class = b%2
 		#train_class = 0
 		smoothed_fires = np.zeros((num_all, sim_steps-look_back+1))
 		train_smoothed_fires = np.zeros((num_all, sim_steps-look_back+1))
@@ -167,7 +168,7 @@ for e in range(epoch):
 		tslfs = np.ones(num_all)*1000
 
 		theta = angles[train_class]
-		offset = np.random.rand()
+		offset = 0.5#np.random.rand()*0
 		for i in range(sqrt_num_input):
 			for j in range(sqrt_num_input):
 				r = np.sqrt((xs[i]**2) + (ys[j]**2))
@@ -189,19 +190,20 @@ for e in range(epoch):
 			c_avg = np.mean(avg_fire_rate, axis = 0) #average for each neuron over the last batch size (like 100 or something)
 			for n in range(num_all):
 				smoothed_fires[n, :] = simple_moving_average(jFs[n], look_back)
-		
-			if b%20 == 0:
-				print(b, np.mean(smoothed_fires[num_input:]), np.mean(c_avg[num_input:]), np.mean(synapses))
 
 			mean_in_region[0, b] = np.mean(smoothed_fires[num_input+num_inhib::2])
 			mean_in_region[1, b] = np.mean(smoothed_fires[num_input+num_inhib+1::2])
 			
 			print(b, train_class, mean_in_region[0, b] > mean_in_region[1, b])
-			num_right += train_class == (mean_in_region[0, b] > mean_in_region[1, b] )
+			num_right += train_class == (mean_in_region[0, b] > mean_in_region[1, b])
+			above_avg_fire_by_class[train_class] += np.sum(smoothed_fires[num_input+num_inhib:], axis = 1)/np.mean(smoothed_fires[num_input+num_inhib:])
 			#plt.imshow(smoothed_fires, aspect = 'auto', interpolation  = 'nearest')
 			#plt.show()
 
 print(num_right/batch_size_test)
+
+plt.figure()
+plt.imshow(above_avg_fire_by_class,aspect = 'auto')
 
 plt.figure()
 plt.title('mean response')
