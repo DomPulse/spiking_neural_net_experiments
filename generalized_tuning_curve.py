@@ -6,7 +6,7 @@ epoch = 2
 stren_mults = 10*np.exp(-1*np.linspace(0, 4, epoch))
 print(stren_mults)
 batch_size_prime = 50
-batch_size_test = 5000
+batch_size_test = 10000
 learning_rate = 0.1
 
 sim_length = 1000 #number of miliseconds in real time
@@ -33,13 +33,13 @@ desired_fire_freq = 30
 external_stim_freq = 100
 freq_in_steps = int((1000/external_stim_freq)/del_t)
 num_out = sqrt_num_out*sqrt_num_out
-num_hid = 75
+num_hid = 125
 num_hid_layer = 2
 num_neurons = num_out + num_hid*num_hid_layer
 num_all = num_neurons + num_input
 max_expected_fire = 30 #bit arbitrary init?
 dropout = 0
-weight_tune = 0.5
+weight_tune = 0.4
 weight_std = 0.2
 
 #these are, capacitence in nF, leak conductance in nano siemens, and the time constant for synaptic conductance which is currently unuse, then the threshold increase which is dynamic in this paper
