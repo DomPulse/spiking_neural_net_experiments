@@ -39,7 +39,7 @@ num_neurons = num_out + num_hid*num_hid_layer
 num_all = num_neurons + num_input
 max_expected_fire = 30 #bit arbitrary init?
 dropout = 0
-weight_tune = 0.7
+weight_tune = 0.5
 weight_std = 0.2
 
 #these are, capacitence in nF, leak conductance in nano siemens, and the time constant for synaptic conductance which is currently unuse, then the threshold increase which is dynamic in this paper
@@ -241,7 +241,7 @@ offset = 0
 
 #generates a mask that will effectively half the firing rate of the neurons we don't want firing for a given class
 train_fire_mask = np.ones((2, num_all, sim_steps))
-for n in range(num_hid, num_neurons):
+for n in range(num_hid*num_hid_layer, num_neurons):
 	train_fire_mask[n%2, num_input + n, ::2] = np.zeros(sim_steps//2)
 
 avg_fire_rate = np.zeros((batch_size_prime, num_all))
@@ -315,8 +315,8 @@ for e in range(epoch):
 			
 			i_have_stds.append(np.std(synapses))
 			mean_syn.append(np.mean(synapses))
-			mean_in_region[0, b] = np.mean(smoothed_fires[num_input+num_hid::2])
-			mean_in_region[1, b] = np.mean(smoothed_fires[num_input+num_hid+1::2])
+			mean_in_region[0, b] = np.mean(smoothed_fires[num_input+num_hid*num_hid_layer::2])
+			mean_in_region[1, b] = np.mean(smoothed_fires[num_input+num_hid*num_hid_layer+1::2])
 			#plt.imshow(smoothed_fires, aspect = 'auto', interpolation  = 'nearest')
 			#plt.show()
 
