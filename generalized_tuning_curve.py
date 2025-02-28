@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 epoch = 2
 stren_mults = 10*np.exp(-1*np.linspace(0, 4, epoch))
 print(stren_mults)
-batch_size_prime = 10
-batch_size_test = 15000
+batch_size_prime = 50
+batch_size_test = 1500
 learning_rate = 0.1
 
 sim_length = 1000 #number of miliseconds in real time
@@ -24,7 +24,7 @@ V_reset = -65 #reset
 t_refrac = 2
 
 sqrt_num_input = 10
-sqrt_num_out = 10
+sqrt_num_out = 6
 num_input = sqrt_num_input*sqrt_num_input
 spat_freq = 2
 test_stim_stren = 0.05
@@ -33,11 +33,11 @@ desired_fire_freq = 30
 external_stim_freq = 100
 freq_in_steps = int((1000/external_stim_freq)/del_t)
 num_out = sqrt_num_out*sqrt_num_out
-num_hid = 150
+num_hid = 250
 num_neurons = num_out + num_hid
 num_all = num_neurons + num_input
 max_expected_fire = 30 #bit arbitrary init?
-dropout = 0.2
+dropout = 0
 weight_tune = 0.3
 weight_std = 0.2
 
@@ -97,13 +97,15 @@ def cherry_pie(c, c_avg, c0):
 	slope = (phi(to_deriv[zero_idx+1], c0, c0) - phi(to_deriv[zero_idx-1], c0, c0))/(to_deriv[zero_idx+1] - to_deriv[zero_idx-1]) #we find tangent near the c0 point so we can set the decay to cancel small canges i guess
 	slope = 0.03
 	norm_phi = np.mean(c)*200 #ngl idk where the factor comes from but it is aparently needed
+	norm_inhib = np.mean(c)*2000
 	ums = []
 	dums = []
 	for pair in idx_pairs:
 		pre_syn_idx = pair[0]
 		post_syn_idx = pair[1]
-		
-		um = slope*(synapses[post_syn_idx][pre_syn_idx] - defaults[post_syn_idx][pre_syn_idx])
+
+		#um = slope*(synapses[post_syn_idx][pre_syn_idx] - defaults[post_syn_idx][pre_syn_idx])
+		um = slope*(np.mean(synapses[post_syn_idx]) - defaults[post_syn_idx][pre_syn_idx]) #this is inspired by https://www.nature.com/articles/nn1100_1178 and should increase competition
 		del_synapses[post_syn_idx][pre_syn_idx] -= um
 		ums.append(um)
 
@@ -111,13 +113,17 @@ def cherry_pie(c, c_avg, c0):
 		#diff = (synapses[post_syn_idx][pre_syn_idx] - defaults[post_syn_idx][pre_syn_idx])
 		#del_synapses[post_syn_idx][pre_syn_idx] -= slope*((diff) + 0.1*diff**3)
 		
-		direction = exin_array[pre_syn_idx]*2 - 1 #reverses direction of training for inhibitory neurons i hope
-		d = c[pre_syn_idx]
-		dum = direction*np.mean(phi(c[post_syn_idx + num_input], c_avg[post_syn_idx + num_input], c0)*d)/norm_phi #div by mean c to normalize or sm
+		#this is also inspired by the https://www.nature.com/articles/nn1100_1178 and um should be closer to the stdp based inhibitory neuron rule i guess
+		if exin_array[pre_syn_idx] == 1:
+			d = c[pre_syn_idx]
+			dum = np.mean(phi(c[post_syn_idx + num_input], c_avg[post_syn_idx + num_input], c0)*d)/norm_phi #div by mean c to normalize or sm
+		else:
+			dum = np.mean(c[post_syn_idx + num_input])/(norm_inhib)
+			dums.append(dum)
 		del_synapses[post_syn_idx][pre_syn_idx] += dum
-		#dums.append(dum)
+		
 
-	#print(np.mean(dums), np.mean(ums))
+	#print('dummy', np.mean(dums), np.mean(ums))
 
 	del_synapses *= learning_rate
 	return del_synapses
@@ -153,6 +159,11 @@ for pre_syn_idx in range(num_all):
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
 		elif post_syn_idx < num_hid and adjusted_pre_syn_idx >= num_hid and adjusted_pre_syn_idx < num_neurons: #out to hid
+			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
+			defaults[post_syn_idx, pre_syn_idx] = weight_tune
+			idx_pairs.append([pre_syn_idx, post_syn_idx])
+
+		elif adjusted_pre_syn_idx < num_hid and post_syn_idx < num_hid: #hid to hid
 			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
 			defaults[post_syn_idx, pre_syn_idx] = weight_tune
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
@@ -243,7 +254,7 @@ for e in range(epoch):
 		tslfs = np.ones(num_all)*1000
 
 		theta = angles[train_class]
-		offset = np.random.rand()
+		offset = np.random.rand()*0
 		for i in range(sqrt_num_input):
 			for j in range(sqrt_num_input):
 				r = np.sqrt((xs[i]**2) + (ys[j]**2))
@@ -259,7 +270,7 @@ for e in range(epoch):
 			jFs[:, s] = fired[:]
 			volts[:, s] = membrane_volts[:]
 		
-		train_jFs = jFs#*train_fire_mask[train_class]
+		train_jFs = jFs*train_fire_mask[train_class]
 		
 		'''
 		if e != 0:
@@ -281,6 +292,10 @@ for e in range(epoch):
 		
 			if b%20 == 0:
 				print(b, np.mean(smoothed_fires[num_input:]), np.mean(c_avg[num_input:]), np.mean(synapses))
+				#plt.imshow(synapses, aspect = 'auto', interpolation  = 'nearest', extent = [-num_input, num_neurons, num_neurons, 0])
+				#plt.ylabel('post_syn_idx')
+				#plt.xlabel('pre_syn_idx')
+				#plt.show()
 			
 			i_have_stds.append(np.std(synapses))
 			mean_syn.append(np.mean(synapses))

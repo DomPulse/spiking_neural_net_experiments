@@ -24,7 +24,7 @@ V_reset = -65 #reset
 t_refrac = 2
 
 sqrt_num_input = 10
-sqrt_num_out = 10
+sqrt_num_out = 6
 num_input = sqrt_num_input*sqrt_num_input
 spat_freq = 2
 test_stim_stren = 0.05
@@ -33,7 +33,7 @@ desired_fire_freq = 30
 external_stim_freq = 100
 freq_in_steps = int((1000/external_stim_freq)/del_t)
 num_out = sqrt_num_out*sqrt_num_out
-num_hid = 150
+num_hid = 250
 num_neurons = num_out + num_hid
 num_all = num_neurons + num_input
 max_expected_fire = 30 #bit arbitrary init?
@@ -168,7 +168,7 @@ for e in range(epoch):
 		tslfs = np.ones(num_all)*1000
 
 		theta = angles[train_class]
-		offset = np.random.rand()
+		offset = np.random.rand()*0
 		for i in range(sqrt_num_input):
 			for j in range(sqrt_num_input):
 				r = np.sqrt((xs[i]**2) + (ys[j]**2))
