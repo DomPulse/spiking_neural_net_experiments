@@ -6,7 +6,7 @@ epoch = 2
 stren_mults = 10*np.exp(-1*np.linspace(0, 4, epoch))
 print(stren_mults)
 batch_size_prime = 50
-batch_size_test = 1500
+batch_size_test = 5000
 learning_rate = 0.1
 
 sim_length = 1000 #number of miliseconds in real time
@@ -33,12 +33,13 @@ desired_fire_freq = 30
 external_stim_freq = 100
 freq_in_steps = int((1000/external_stim_freq)/del_t)
 num_out = sqrt_num_out*sqrt_num_out
-num_hid = 250
-num_neurons = num_out + num_hid
+num_hid = 75
+num_hid_layer = 2
+num_neurons = num_out + num_hid*num_hid_layer
 num_all = num_neurons + num_input
 max_expected_fire = 30 #bit arbitrary init?
 dropout = 0
-weight_tune = 0.3
+weight_tune = 0.7
 weight_std = 0.2
 
 #these are, capacitence in nF, leak conductance in nano siemens, and the time constant for synaptic conductance which is currently unuse, then the threshold increase which is dynamic in this paper
@@ -143,30 +144,45 @@ for pre_syn_idx in range(num_all):
 		if np.random.rand() < dropout:
 			pass
 
-		elif pre_syn_idx < num_input and post_syn_idx >= num_hid and post_syn_idx < num_neurons: #in to ouut
+		elif adjusted_pre_syn_idx >= num_hid*(num_hid_layer - 1) and adjusted_pre_syn_idx < num_hid*num_hid_layer and post_syn_idx >= num_hid*num_hid_layer: #lastt hid to out
 			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
 			defaults[post_syn_idx, pre_syn_idx] = weight_tune
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
-		elif adjusted_pre_syn_idx < num_hid and post_syn_idx >= num_hid and post_syn_idx < num_neurons: #hid to out
+		elif pre_syn_idx < num_input and post_syn_idx < num_hid: #in to first hid
 			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
 			defaults[post_syn_idx, pre_syn_idx] = weight_tune
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
-		elif pre_syn_idx < num_input and post_syn_idx < num_hid: #in to hid
+		elif post_syn_idx >= num_hid*(num_hid_layer - 1) and post_syn_idx < num_hid*num_hid_layer and adjusted_pre_syn_idx >= num_hid*num_hid_layer and adjusted_pre_syn_idx < num_neurons: #out to last hid
 			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
 			defaults[post_syn_idx, pre_syn_idx] = weight_tune
 			idx_pairs.append([pre_syn_idx, post_syn_idx])
 
-		elif post_syn_idx < num_hid and adjusted_pre_syn_idx >= num_hid and adjusted_pre_syn_idx < num_neurons: #out to hid
-			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
-			defaults[post_syn_idx, pre_syn_idx] = weight_tune
-			idx_pairs.append([pre_syn_idx, post_syn_idx])
+for i in range(num_hid_layer):
+	for kinda_post_syn_idx in range(num_hid):
+		#gets the hid to same hid
+		for kinda_pre_syn_idx in range(num_hid):
+			if np.random.rand() < dropout:
+				pass
+			else:
+				post_syn_idx = kinda_post_syn_idx + num_hid*i
+				pre_syn_idx = num_input + kinda_pre_syn_idx + num_hid*i
+				synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
+				defaults[post_syn_idx, pre_syn_idx] = weight_tune
+				idx_pairs.append([pre_syn_idx, post_syn_idx])
 
-		elif adjusted_pre_syn_idx < num_hid and post_syn_idx < num_hid: #hid to hid
-			synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
-			defaults[post_syn_idx, pre_syn_idx] = weight_tune
-			idx_pairs.append([pre_syn_idx, post_syn_idx])
+		#hid to next hidden layer
+		if i < num_hid_layer - 1:
+			for kinda_pre_syn_idx in range(num_hid):
+				if np.random.rand() < dropout:
+					pass
+				else:
+					post_syn_idx = kinda_post_syn_idx + num_hid*(i+1)
+					pre_syn_idx = num_input + kinda_pre_syn_idx + num_hid*i
+					synapses[post_syn_idx, pre_syn_idx] = np.max([np.random.normal(weight_tune, weight_std), 0])
+					defaults[post_syn_idx, pre_syn_idx] = weight_tune
+					idx_pairs.append([pre_syn_idx, post_syn_idx])
 
 for n in range(num_neurons):
 	neur_params[n, :] = excite_neur_params[:]
