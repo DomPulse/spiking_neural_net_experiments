@@ -37,48 +37,127 @@ def step_Ca2(I_CaT, I_CaS, Ca2):
 	dCa2 = time_step*(-14.96*(I_CaT + I_CaS) - Ca2 + 0.05)/200
 	return dCa2
 
-def current_contrib(V, E, g, m, p, h = 1):
+def current_contrib(A, V, E, g, m, p, h = 1):
 	#hey some of the ions dont have h modeles in the table 1, gonna just assume constant 1 for those until i see otherwise
-	I = g*(m**p)*h*(V-E)
+	I = A*g*(m**p)*h*(V-E)
 	return I
 
+def nernst(Ca2, Ca2_extra = 3):
+	#that constant is currnty set for room temperature, maybe it should be something else like idk, body temperature?
+	return 25.693*np.log(Ca2_extra/Ca2)
+
+def m_h_stuff(all_params, V_membrane, Ca2, init_m_h = False):
+	if init_m_h:
+		#setting all the m values
+		all_params[0, 3] = m_or_h_infin(V_membrane, 25.5, -5.29)
+		all_params[1, 3] = m_or_h_infin(V_membrane, 27.1, -7.2)
+		all_params[2, 3] = m_or_h_infin(V_membrane, 33, -8.1)
+		all_params[3, 3] = m_or_h_infin(V_membrane, 27.2, -8.7)
+		all_params[4, 3] = m_or_h_infin(V_membrane, 28.3, -12.6, True, Ca2)
+		all_params[5, 3] = m_or_h_infin(V_membrane, 12.3, -11.8)
+		all_params[6, 3] = m_or_h_infin(V_membrane, 75, 5.5)
+
+		#and now all the h values
+		all_params[0, 4] = m_or_h_infin(V_membrane, 48.9, 5.18)
+		all_params[1, 4] = m_or_h_infin(V_membrane, 32.1, 5.5)
+		all_params[2, 4] = m_or_h_infin(V_membrane, 60, 6.2)
+		all_params[3, 4] = m_or_h_infin(V_membrane, 56.9, 4.9)
+		all_params[4, 4] = 1
+		all_params[5, 4] = 1
+		all_params[6, 4] = 1
+
+	#setting all the m_infinity values
+	all_params[0, 5] = m_or_h_infin(V_membrane, 25.5, -5.29)
+	all_params[1, 5] = m_or_h_infin(V_membrane, 27.1, -7.2)
+	all_params[2, 5] = m_or_h_infin(V_membrane, 33, -8.1)
+	all_params[3, 5] = m_or_h_infin(V_membrane, 27.2, -8.7)
+	all_params[4, 5] = m_or_h_infin(V_membrane, 28.3, -12.6, True, Ca2)
+	all_params[5, 5] = m_or_h_infin(V_membrane, 12.3, -11.8)
+	all_params[6, 5] = m_or_h_infin(V_membrane, 75, 5.5)
+
+	#and now all the h_infinity values
+	all_params[0, 6] = m_or_h_infin(V_membrane, 48.9, 5.18)
+	all_params[1, 6] = m_or_h_infin(V_membrane, 32.1, 5.5)
+	all_params[2, 6] = m_or_h_infin(V_membrane, 60, 6.2)
+	all_params[3, 6] = m_or_h_infin(V_membrane, 56.9, 4.9)
+	all_params[4, 6] = 1
+	all_params[5, 6] = 1
+	all_params[6, 6] = 1
+
+	#setting all the tau_m values
+	all_params[0, 7] = most_taus(V_membrane, -2.52, 120, -25, 2.64)
+	all_params[1, 7] = most_taus(V_membrane, -42.6, 68.1, -20.5, 43.4)
+	all_params[2, 7] = double_exp_taus(V_membrane, 14, 27, 10, 70, -13, 2.8)
+	all_params[3, 7] = most_taus(V_membrane, -20.8, 32.9, -15.2, 23.2)
+	all_params[4, 7] = most_taus(V_membrane, -150.2, 46, -22.7, 180.6)
+	all_params[5, 7] = most_taus(V_membrane, -12.8, 28.3, -19.2, 14.4)
+	all_params[6, 7] = double_exp_taus(V_membrane, 2, 169.7, -11.6, -26.7, 14.3, 0)
+
+	#and now all the ta_h values
+	all_params[0, 8] = tau_h_Na(V_membrane)
+	all_params[1, 8] = most_taus(V_membrane, -179.6, 55, -16.9, 210)
+	all_params[2, 8] = double_exp_taus(V_membrane, 300, 55, 9, 65, -16, 120)
+	all_params[3, 8] = most_taus(V_membrane, -58.4, 38.9, -26.5, 77.2)
+	all_params[4, 8] = 1
+	all_params[5, 8] = 1
+	all_params[6, 8] = 1
+
+	return all_params
 
 A = 6.28E-4 #area in cm^2
-C = 6.28E-10 #capacitence in nF, something tells me they picked this to mostly cancel with area
-I_ext = 0
+C = 6.28E-1 #capacitence in nF, something tells me they picked this to mostly cancel with area
 time_step = 0.5
 sim_length = 1000
 sim_steps = int(sim_length/time_step)
 
+#conductance in mS/cm^2 ?
 Na_g = 100
 CaT_g = 0
-CaS = 10
+CaS_g = 10
 A_g = 50
 KCa_g = 20
 Kd_g = 100
 H_g = 0.04
-leak = 0.02
+leak_g = 0.02
+
+NaReverse = 50
+KReverse = -80
+HReverse = -20
+LeakReverse = -50
 
 #volatile initialization
-V_membrane = -65
+V_membrane = -50
 Ca2 = 0.05
+CaReverse = nernst(Ca2)
+I_ext = 0.05
 
 #I genuinely don't know if the time constants are meant to be constant, like yeah they should be but they are functions of V so like?
 #I think they do change bc of top of page 3 but like 
-#conductance, m, h, p, tau_m, tau_h, then reversal potential
-Na_params = [Na_g, m_or_h_infin(V_membrane, 25.5, -5.29), m_or_h_infin(V_membrane, 48.9, 5.18), 3, most_taus(V_membrane, -2.52, 120, -25, 2.64), tau_h_Na(V_membrane), 50]
-CaT_params = [CaT_g, m_or_h_infin(V_membrane, 27.1, -7.2), m_or_h_infin(V_membrane, 32.1, 5.5), 3, most_taus(V_membrane, -42.6, 68.1, -20.5, 43.4), most_taus(V_membrane, -179.6, 55, -16.9, 210), ]
-CaS_params = [CaS, m_or_h_infin(V_membrane, 33, -8.1), m_or_h_infin(V_membrane, 60, 6.2), 3, double_exp_taus(V_membrane, 14, 27, 10, 70, -13, 2.8), double_exp_taus(V_membrane, 300, 55, 9, 65, -16, 120)]
-A_params = [A_g, m_or_h_infin(V_membrane, 27.2, -8.7), m_or_h_infin(V_membrane, 56.9, 4.9), 3, most_taus(V_membrane, -20.8, 32.9, -15.2, 23.2), most_taus(V_membrane, -58.4, 38.9, -26.5, 77.2)]
-KCa_params = [KCa_g, m_or_h_infin(V_membrane, 28.3, -12.6, True, Ca2), 1, 4, most_taus(V_membrane, -150.2, 46, -22.7, 180.6), 1]
-Kd_params = [Kd_g, m_or_h_infin(V_membrane, 12.3, -11.8), 1, 4, most_taus(V_membrane, -12.8, 28.3, -19.2, 14.4), 1]
-H_params = [H_g, m_or_h_infin(V_membrane, 75, 5.5), 1, 1, double_exp_taus(V_membrane, 2, 169.7, -11.6, -26.7, 14.3, 0), 1]
+#max conductance, reverse potential, p, m, h, m_infinity, h_infinity, tau_m, tau_h
+all_params = np.zeros((7, 9))
+all_params[:, 0] = [Na_g, CaT_g, CaS_g, A_g, KCa_g, Kd_g, H_g]
+all_params[:, 1] = [NaReverse, CaReverse, CaReverse, NaReverse, CaReverse, KReverse, HReverse] #hey if anything is wrong check here I'm highly skeptical
+all_params[:, 2] = [3, 3, 3, 3, 4, 4, 1]
+all_params = m_h_stuff(all_params, V_membrane, Ca2, init_m_h = True)
 
-all_params = np.asarray([Na_params, CaT_params, CaS_params, A_params, KCa_params, Kd_params, H_params])
-print(all_params)
-
+Vs = np.zeros(sim_steps)
 for s in range(sim_steps):
-	current_sum = 0
+	I_leak = (V_membrane - LeakReverse)*leak_g*A
+	current_sum = []
+	all_params = m_h_stuff(all_params, V_membrane, Ca2)
+
+	for index, params in enumerate(all_params):
+		if index < 4:
+			all_params[index, 2] += time_step*(params[6] - params[4])/params[8]
+		all_params[index, 2] += time_step*(params[5] - params[3])/params[7]
+
 	for params in all_params:
-		current_sum += current_contrib(V)
-	dV = time_step*(current_sum + I_ext)/C
+		current_sum.append(current_contrib(A, V_membrane, params[1], params[0], params[3], params[2], params[4]))
+		
+	dV = time_step*(-1*np.sum(current_sum) - I_ext - I_leak)/C
+	V_membrane += dV
+	Ca2 += step_Ca2(current_sum[1], current_sum[2], Ca2)
+	Vs[s] = V_membrane
+
+plt.plot(Vs)
+plt.show()
